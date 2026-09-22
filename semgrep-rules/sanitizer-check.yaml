@@ -1,0 +1,29 @@
+# Bo rule KIEM SANITIZER - khong phai rule tim loi.
+# Nhiem vu: tim BANG CHUNG TINH rang duong du lieu da bi vo hieu hoa.
+# Engine Python dung ket qua nay de day mot canh bao sang nhan FILTERED.
+# Khong co bang chung o day thi canh bao KHONG duoc phep thanh FILTERED.
+rules:
+  - id: vulnshop-sanitizer-sql-parameterized
+    languages: [csharp]
+    severity: INFO
+    message: "SANITIZER CWE-89: truy van da duoc tham so hoa."
+    metadata:
+      sanitizer_for: "CWE-89"
+      category: correctness
+    pattern-either:
+      - pattern: $CMD.Parameters.AddWithValue(...)
+      - pattern: $CMD.Parameters.Add(...)
+      - pattern: $CMD.Parameters.AddRange(...)
+
+  - id: vulnshop-sanitizer-html-encode
+    languages: [csharp]
+    severity: INFO
+    message: "SANITIZER CWE-79: gia tri da duoc ma hoa HTML truoc khi ghep vao output."
+    metadata:
+      sanitizer_for: "CWE-79"
+      category: correctness
+    pattern-either:
+      - pattern: HtmlEncoder.Default.Encode(...)
+      - pattern: WebUtility.HtmlEncode(...)
+      - pattern: System.Net.WebUtility.HtmlEncode(...)
+      - pattern: HttpUtility.HtmlEncode(...)

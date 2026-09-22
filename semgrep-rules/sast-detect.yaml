@@ -1,0 +1,79 @@
+# Bo rule PHAT HIEN - co y viet theo kieu "rule pho thong san co":
+# bat theo dau hieu be mat (noi chuoi), khong truy vet luong du lieu.
+# Vi vay no bao ca nhung cho thuc ra an toan (C5, C6) -> tao ra duong tinh gia,
+# dung lam nguyen lieu cho co che ba nhan o tang tuong quan phia sau.
+#
+# GHI CHU CU PHAP (da kiem chung bang thuc nghiem tren Semgrep):
+#   - Phai viet `var` LITERAL. Metavariable kieu `$T $X = ...` KHONG khop
+#     khai bao dung `var` trong C#.
+#   - Pattern dang CAU LENH (co dau `;`) cho dung mot ket qua moi vi tri.
+#     Pattern dang BIEU THUC (khong `;`) khop ca bieu thuc con -> bao trung lap.
+rules:
+  # ---------------- CWE-89 : SQL Injection ----------------
+  - id: vulnshop-sqli-commandtext-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-89: CommandText duoc dung tu phep noi chuoi. Neu mot phan chuoi den tu
+      input nguoi dung thi day la lo hong SQL Injection.
+    metadata:
+      cwe: "CWE-89"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+    pattern: $CMD.CommandText = <... $A + $B ...>;
+
+  - id: vulnshop-sqli-query-string-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-89: Cau lenh SQL duoc dung bang noi chuoi vao bien trung gian
+      truoc khi gan vao CommandText.
+    metadata:
+      cwe: "CWE-89"
+      category: security
+      subcategory: [vuln]
+      confidence: LOW
+    patterns:
+      - pattern-either:
+          - pattern: var $SQL = <... "..." + $X ...>;
+          - pattern: string $SQL = <... "..." + $X ...>;
+      - metavariable-regex:
+          metavariable: $SQL
+          regex: (?i).*(sql|query|cmd).*
+
+  # ---------------- CWE-79 : Cross-Site Scripting ----------------
+  - id: vulnshop-xss-html-string-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-79: Chuoi HTML duoc dung bang noi chuoi roi tra ve truc tiep cho trinh duyet.
+    metadata:
+      cwe: "CWE-79"
+      category: security
+      subcategory: [vuln]
+      confidence: LOW
+    patterns:
+      - pattern-either:
+          - pattern: var $HTML = <... "..." + $X ...>;
+          - pattern: string $HTML = <... "..." + $X ...>;
+      - metavariable-regex:
+          metavariable: $HTML
+          regex: (?i).*(html|markup|output).*
+
+  # Razor khong duoc Semgrep phan tich cu phap -> dung che do generic.
+  # Day la mot gioi han that cua SAST tren ngon ngu template, nen ghi vao bao cao.
+  - id: vulnshop-xss-html-raw-razor
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      CWE-79: Html.Raw in noi dung ra trang ma khong ma hoa HTML.
+    metadata:
+      cwe: "CWE-79"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+    paths:
+      include:
+        - "*.cshtml"
+    pattern: Html.Raw(...)

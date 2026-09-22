@@ -1,0 +1,17 @@
+# .NET
+bin/
+obj/
+*.user
+
+# CSDL sinh ra luc chay
+*.db
+*.db-shm
+*.db-wal
+
+# Bao cao sinh ra tu pipeline
+reports/
+scanners.json
+
+# Python
+__pycache__/
+*.pyc

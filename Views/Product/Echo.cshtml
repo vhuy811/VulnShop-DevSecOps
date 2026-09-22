@@ -1,0 +1,10 @@
+@{
+    ViewData["Title"] = "Echo";
+}
+
+<h2>Tin nhan cua ban</h2>
+
+<!-- C3 | CWE-79: Html.Raw in thang gia tri nguoi dung nhap, khong ma hoa -->
+<div class="border p-3">@Html.Raw(ViewBag.Msg)</div>
+
+<p><a asp-controller="Home" asp-action="Index">Ve trang chu</a></p>

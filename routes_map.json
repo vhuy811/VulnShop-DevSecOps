@@ -1,0 +1,141 @@
+{
+  "app_base_url": "http://localhost:5000",
+  "generated_from": [
+    "Controllers/ProductController.cs"
+  ],
+  "routes": [
+    {
+      "controller": "Product",
+      "action": "Search",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 14,
+      "line_end": 33,
+      "url_path": "/Product/Search",
+      "method": "GET",
+      "params": [
+        "q"
+      ],
+      "test_seed": "a"
+    },
+    {
+      "controller": "Product",
+      "action": "Detail",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 37,
+      "line_end": 56,
+      "url_path": "/Product/Detail",
+      "method": "GET",
+      "params": [
+        "id"
+      ],
+      "test_seed": "1"
+    },
+    {
+      "controller": "Product",
+      "action": "Echo",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 60,
+      "line_end": 64,
+      "url_path": "/Product/Echo",
+      "method": "GET",
+      "params": [
+        "msg"
+      ],
+      "test_seed": "a"
+    },
+    {
+      "controller": "Product",
+      "action": "Greet",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 68,
+      "line_end": 72,
+      "url_path": "/Product/Greet",
+      "method": "GET",
+      "params": [
+        "name"
+      ],
+      "test_seed": "a"
+    },
+    {
+      "controller": "Product",
+      "action": "SafeSearch",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 77,
+      "line_end": 94,
+      "url_path": "/Product/SafeSearch",
+      "method": "GET",
+      "params": [
+        "q"
+      ],
+      "test_seed": "a"
+    },
+    {
+      "controller": "Product",
+      "action": "SafeGreet",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 98,
+      "line_end": 103,
+      "url_path": "/Product/SafeGreet",
+      "method": "GET",
+      "params": [
+        "name"
+      ],
+      "test_seed": "a"
+    },
+    {
+      "controller": "Product",
+      "action": "List",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 106,
+      "line_end": 119,
+      "url_path": "/Product/List",
+      "method": "GET",
+      "params": [],
+      "test_seed": ""
+    },
+    {
+      "controller": "Product",
+      "action": "About",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 121,
+      "line_end": 121,
+      "url_path": "/Product/About",
+      "method": "GET",
+      "params": [],
+      "test_seed": ""
+    },
+    {
+      "controller": "Product",
+      "action": "Contact",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 123,
+      "line_end": 123,
+      "url_path": "/Product/Contact",
+      "method": "GET",
+      "params": [],
+      "test_seed": ""
+    },
+    {
+      "controller": "Product",
+      "action": "Help",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 125,
+      "line_end": 125,
+      "url_path": "/Product/Help",
+      "method": "GET",
+      "params": [],
+      "test_seed": ""
+    },
+    {
+      "controller": "Product",
+      "action": "Pricing",
+      "file": "Controllers/ProductController.cs",
+      "line_start": 127,
+      "line_end": 127,
+      "url_path": "/Product/Pricing",
+      "method": "GET",
+      "params": [],
+      "test_seed": ""
+    }
+  ]
+}

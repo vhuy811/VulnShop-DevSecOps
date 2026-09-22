@@ -1,0 +1,7 @@
+﻿case_id,cwe,endpoint,param,mo_ta,nhan_dung
+C1,CWE-89,/Product/Search,q,Nối chuỗi trực tiếp tham số vào câu SELECT,CONFIRMED
+C2,CWE-89,/Product/Detail,id,Tham số không ép kiểu nối thẳng vào mệnh đề WHERE,CONFIRMED
+C3,CWE-79,/Product/Echo,msg,In ra view bằng Html.Raw không mã hóa,CONFIRMED
+C4,CWE-79,/Product/Greet,name,Trả về HTML nối chuỗi trực tiếp,CONFIRMED
+C5,CWE-89,/Product/SafeSearch,q,Đã tham số hóa; chỉ nối tên cột cứng nên an toàn,FILTERED
+C6,CWE-79,/Product/SafeGreet,name,Đã HtmlEncode trước khi nối chuỗi nên an toàn,FILTERED

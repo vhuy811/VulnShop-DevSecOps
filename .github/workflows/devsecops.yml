@@ -1,0 +1,136 @@
+name: DevSecOps - SAST dan huong DAST
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # can de day SARIF len Code Scanning
+
+    steps:
+      - name: Lay ma nguon
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tao thu muc bao cao
+        run: mkdir -p reports
+
+      # ---------------------------------------------------------------
+      # 1. Quet secret
+      # ---------------------------------------------------------------
+      - name: Gitleaks - quet secret trong ma nguon
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --no-git \
+            --report-format=sarif --report-path=/repo/reports/gitleaks.sarif \
+            --exit-code 0 --redact
+          echo "Gitleaks da chay xong."
+
+      # ---------------------------------------------------------------
+      # 2. SAST - dinh vi lo hong trong ma nguon
+      # ---------------------------------------------------------------
+      - name: Semgrep - bo rule phat hien
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep \
+            semgrep scan --config semgrep-rules/sast-detect.yaml --exclude semgrep-rules \
+            --sarif --output reports/semgrep.sarif --metrics=off
+
+      - name: Semgrep - bo rule kiem sanitizer
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep \
+            semgrep scan --config semgrep-rules/sanitizer-check.yaml --exclude semgrep-rules \
+            --sarif --output reports/sanitizers.sarif --metrics=off
+
+      - name: Sinh lai ban do route
+        run: python tools/gen_routes_map.py --root . --base-url http://localhost:5000
+
+      # ---------------------------------------------------------------
+      # 3. Dung ung dung de DAST co muc tieu
+      # ---------------------------------------------------------------
+      - name: Cai .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build
+        run: dotnet build VulnShop.csproj -c Release
+
+      - name: Chay ung dung o nen
+        run: |
+          nohup dotnet run --project VulnShop.csproj --urls http://0.0.0.0:5000 \
+            > app.log 2>&1 &
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:5000/Product/List > /dev/null; then
+              echo "Ung dung da san sang sau ${i} lan thu."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Ung dung khong khoi dong duoc:"; cat app.log; exit 1
+
+      # ---------------------------------------------------------------
+      # 4. DAST - xac nhan theo chi dan cua SAST
+      # ---------------------------------------------------------------
+      # Tren runner Linux dung --network host, nen ZAP goi thang localhost.
+      # Khac voi may Windows phai dung host.docker.internal.
+      - name: Khoi dong OWASP ZAP dang daemon
+        run: |
+          docker run -d --name zap --network host zaproxy/zap-stable \
+            zap.sh -daemon -host 0.0.0.0 -port 8090 \
+            -config api.addrs.addr.name=.* \
+            -config api.addrs.addr.regex=true \
+            -config api.disablekey=true
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8090/JSON/core/view/version/ > /dev/null; then
+              echo "ZAP da san sang sau ${i} lan thu."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ZAP khong khoi dong duoc:"; docker logs zap; exit 1
+
+      - name: Cai phu thuoc Python
+        run: pip install requests
+
+      - name: Tuong quan SAST-DAST va quality gate
+        id: correlate
+        run: |
+          python tools/correlate.py \
+            --zap http://localhost:8090 \
+            --base-url http://localhost:5000 \
+            --scan-timeout 300 \
+            --fail-on-confirmed
+
+      # ---------------------------------------------------------------
+      # 5. Bao cao va canh bao - chay ca khi quality gate da that bai
+      # ---------------------------------------------------------------
+      - name: Day SARIF da gan nhan len Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/correlated.sarif
+          category: vulnshop-correlator
+
+      - name: Luu bao cao lam artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bao-cao-bao-mat
+          path: reports/
+
+      - name: Gui canh bao Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python tools/notify.py
+
+      - name: Nhat ky ZAP khi co su co
+        if: failure()
+        run: docker logs zap | tail -50
