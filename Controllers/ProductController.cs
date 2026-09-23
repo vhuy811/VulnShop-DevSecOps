@@ -126,3 +126,4 @@ public class ProductController : Controller
 
     public IActionResult Pricing() => Content("<h3>Bang gia va chinh sach giao hang</h3>", "text/html");
 }
+// thu lan hai
