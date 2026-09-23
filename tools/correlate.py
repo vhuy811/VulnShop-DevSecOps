@@ -170,7 +170,12 @@ class Zap:
             params["apikey"] = self.api_key
         url = f"{self.endpoint}{path}?{urlencode(params)}"
         resp = requests.get(url, timeout=30)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # ZAP ghi ly do that trong than phan hoi (vi du url_not_found).
+            # raise_for_status() vut mat phan nay, khien moi loi deu tro thanh
+            # "400 Bad Request" vo nghia. Giu lai de con biet duong ma sua.
+            raise RuntimeError(f"ZAP tra ve {resp.status_code} tai {path}: "
+                               f"{resp.text[:400]}")
         return resp.json()
 
     def ping(self) -> str:
@@ -237,15 +242,45 @@ class Zap:
             if status >= 400:
                 raise ConnectionError(f"App tra ve HTTP {status} cho {url}")
 
-    def active_scan(self, url: str) -> str:
-        res = self._get(
-            "/JSON/ascan/action/scan/",
-            url=url,
-            recurse="false",
-            inScopeOnly="false",
-            method="GET",
-        )
-        return res.get("scan", "")
+    def active_scan(self, url: str, retries: int = 2) -> str:
+        """Khoi tao active scan, thu lai khi ZAP tra ve 400.
+
+        Vi sao can thu lai: accessUrl tra ve ngay sau khi gui yeu cau, nhung
+        ZAP dung nut trong Sites tree BAT DONG BO. Goi ascan ngay sau do co
+        the roi vao khoang thoi gian nut chua ton tai, va ZAP tu choi bang
+        400 Bad Request. Day la mot cuoc dua ve thoi diem, khong phai loi
+        logic: cung mot lenh, lan chay #2 tren runner GitHub thua cuoc dua,
+        lan #4 thang.
+
+        Thu lai o day la hop le vi 400 la mot LOI GOI HAM, khong phai mot
+        ket qua kiem thu. No khong noi gi ve viec endpoint co lo hong hay
+        khong. Neu het luot thu ma van 400 thi loi duoc nem ra va canh bao
+        giu nhan UNCONFIRMED kem ly do - khong bao gio bi coi la an toan.
+        """
+        last_err: Exception | None = None
+        for attempt in range(retries + 1):
+            try:
+                res = self._get(
+                    "/JSON/ascan/action/scan/",
+                    url=url,
+                    recurse="false",
+                    inScopeOnly="false",
+                    method="GET",
+                )
+                return res.get("scan", "")
+            except Exception as exc:  # noqa: BLE001 - can bat moi loi de thu lai
+                last_err = exc
+                if "400" not in str(exc) or attempt == retries:
+                    raise
+                # Danh thuc lai nut trong Sites tree roi cho no kip hinh thanh
+                print(f"\n    -> ZAP tra 400, cho Sites tree roi thu lai "
+                      f"(lan {attempt + 1}/{retries})", flush=True)
+                try:
+                    self.access_url(url)
+                except Exception:
+                    pass
+                time.sleep(2 + attempt * 2)
+        raise last_err  # type: ignore[misc]
 
     def wait(self, scan_id: str, progress: bool = False) -> None:
         deadline = time.time() + self.timeout
@@ -390,7 +425,19 @@ def main() -> int:
     args = ap.parse_args()
 
     findings = load_sarif_results(Path(args.findings))
-    sanitizers = load_sarif_results(Path(args.sanitizers))
+
+    # Tep sanitizer la TUY CHON. Quet mot repo la bang bo rule cong dong thi
+    # khong co no. Thieu thi khong co bang chung loai tru, nghia la khong co
+    # nhan FILTERED - dung voi nguyen tac: khong co bang chung thi khong ket
+    # luan, chu khong phai bia ra mot ket luan cho de.
+    san_path = Path(args.sanitizers)
+    if san_path.exists():
+        sanitizers = load_sarif_results(san_path)
+    else:
+        sanitizers = []
+        print(f"[!] Khong co {san_path} - bo qua buoc loc tinh, "
+              f"se khong co nhan FILTERED.")
+
     routes_doc = json.loads(Path(args.routes).read_text(encoding="utf-8"))
     routes = routes_doc["routes"]
     base_url = args.base_url or routes_doc.get("app_base_url", "http://localhost:5000")

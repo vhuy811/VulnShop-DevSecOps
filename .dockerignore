@@ -1,0 +1,45 @@
+# Nhung gi KHONG duoc chep vao container khi build.
+#
+# Vi sao tep nay bat buoc phai co:
+#   Dockerfile.hardened dung mau toi uu cache - chep .csproj truoc, `dotnet
+#   restore`, roi moi `COPY . .` va publish voi --no-restore. Neu thu muc obj/
+#   cua may Windows lot vao buoc COPY, no ghi de len project.assets.json ma
+#   restore vua sinh trong container, va file do tro toi cac duong dan
+#   C:\Users\... khong ton tai trong Linux. Ket qua la publish nổ voi MSB4018.
+#
+# Ngoai ra tep nay con hai tac dung an ninh that:
+#   - .git/ chua TOAN BO lich su. Chep vao image nghia la moi bi mat tung bi
+#     commit nham roi xoa di deu nam trong san pham giao cho khach.
+#   - bin/, obj/ lam image phinh to va keo theo cac ban sao thu vien cu.
+
+# San pham bien dich - phai dung ban build trong container, khong dung ban cua may
+bin/
+obj/
+**/bin/
+**/obj/
+
+# Lich su git va cau hinh CI
+.git/
+.gitignore
+.github/
+
+# Ket qua quet - khong lien quan toi ung dung
+reports/
+*.sarif
+
+# Cong cu va tai lieu
+tools/
+semgrep-rules/
+*.md
+ground_truth.csv
+
+# CSDL SQLite - ung dung tu tao lai luc khoi dong
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# Tep cua IDE
+.vs/
+.idea/
+*.user
