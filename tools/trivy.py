@@ -14,7 +14,7 @@ Ba viec:
     sbom    - sinh danh muc thanh phan (CycloneDX), gio la yeu cau phap ly o EU va My
 
 Cach dung:
-    python tools/trivy.py --image vulnshop:naive
+    python tools/trivy.py --image ten-image:tag
     python tools/trivy.py --config .
     python tools/trivy.py --sbom .
     python tools/trivy.py --compare          # dung 2 image roi so so CVE
@@ -129,26 +129,40 @@ def print_sev(by_sev: dict, indent: str = "  ") -> None:
     print(indent + ("  ".join(parts) if parts else "khong co"))
 
 
-def build_and_compare() -> dict:
-    """Dung ca hai Dockerfile roi so so CVE - phep do truoc/sau khi gia co."""
+def build_and_compare(df_truoc: str = "Dockerfile",
+                      df_sau: str = "Dockerfile.hardened",
+                      repo: str | None = None) -> dict:
+    """Dung hai Dockerfile roi so so CVE - phep do truoc/sau khi gia co.
+
+    Khong gan cung ten tep va ten image nua: day la bo cong cu dung cho repo
+    bat ky, nen hai Dockerfile va thu muc nguon deu la tham so. Khoa trong
+    ket qua la "truoc"/"sau" thay vi ten image, de bao cao khong phu thuoc
+    vao ten du an nao.
+    """
     need("docker")
+    src = Path(repo).resolve() if repo else ROOT
     results = {}
-    for tag, dockerfile in (("vulnshop:naive", "Dockerfile"),
-                            ("vulnshop:hardened", "Dockerfile.hardened")):
+    for khoa, dockerfile in (("truoc", df_truoc), ("sau", df_sau)):
+        duong_dan = src / dockerfile
+        if not duong_dan.is_file():
+            print(f"  Khong tim thay {duong_dan} - bo qua '{khoa}'.")
+            print("  Luu y: day la 'khong quet' chu khong phai 'image sach'.")
+            continue
+        tag = f"quet-{khoa}:latest"
         print(f"\n[Docker] build {tag} tu {dockerfile} ...", flush=True)
         proc = subprocess.run(
-            ["docker", "build", "-f", str(ROOT / dockerfile), "-t", tag, str(ROOT)],
+            ["docker", "build", "-f", str(duong_dan), "-t", tag, str(src)],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800)
         if proc.returncode != 0:
             print(f"  Build that bai:\n{proc.stderr[-800:]}")
             continue
-        results[tag] = scan_image(tag)
-        print(f"  {results[tag]['total']} lo hong")
-        print_sev(results[tag]["by_severity"], "    ")
+        results[khoa] = scan_image(tag)
+        print(f"  {results[khoa]['total']} lo hong")
+        print_sev(results[khoa]["by_severity"], "    ")
 
     if len(results) == 2:
-        a = results["vulnshop:naive"]
-        b = results["vulnshop:hardened"]
+        a = results["truoc"]
+        b = results["sau"]
         print("\n" + "=" * 62)
         print(f"{'':<22}{'Ngay tho':>14}{'Da gia co':>14}{'Giam':>12}")
         print("-" * 62)
@@ -168,7 +182,7 @@ def main() -> int:
     ap.add_argument("--image", help="tag image can quet")
     ap.add_argument("--config", help="thu muc chua Dockerfile / manifest")
     ap.add_argument("--sbom", help="thu muc sinh SBOM")
-    ap.add_argument("--compare", action="store_true",
+    ap.add_argument("--compare", nargs="*", metavar="DOCKERFILE",
                     help="build ca hai Dockerfile roi so so CVE")
     ap.add_argument("--out-prefix", default="trivy")
     args = ap.parse_args()
@@ -176,8 +190,12 @@ def main() -> int:
     REPORTS.mkdir(exist_ok=True)
     result = {}
 
-    if args.compare:
-        result["compare"] = build_and_compare()
+    if args.compare is not None:
+        # `--compare` tran = [] (falsy) nen phai so voi None, khong dung truthy.
+        df = args.compare or ["Dockerfile", "Dockerfile.hardened"]
+        if len(df) != 2:
+            raise SystemExit("--compare can dung 2 duong dan Dockerfile, hoac de trong.")
+        result["compare"] = build_and_compare(df[0], df[1], args.config or args.sbom)
 
     if args.image:
         r = scan_image(args.image)

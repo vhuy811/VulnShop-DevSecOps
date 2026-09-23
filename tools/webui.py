@@ -431,7 +431,7 @@ def run_scan(job_id: str, repo: str, title: str, use_sast: bool,
 PAGE = r"""<!DOCTYPE html>
 <html lang="vi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bảng điều khiển DevSecOps — VulnShop</title>
+<title>Bảng điều khiển DevSecOps</title>
 <style>
   :root { color-scheme: light; --surface:#fcfcfb; --plane:#f4f4f1; --ink:#0b0b0b;
     --ink2:#52514e; --muted:#898781; --grid:#e1e0d9; --ring:rgba(11,11,11,.10);
@@ -591,9 +591,9 @@ PAGE = r"""<!DOCTYPE html>
   <div class="card">
     <div class="row">
       <div><label for="repo">Đường dẫn thư mục mã nguồn</label>
-        <input id="repo" type="text" placeholder="C:\Users\Admin\Downloads\ATWcsdl\VulnShop"></div>
+        <input id="repo" type="text" placeholder="đường dẫn tới repo cần quét"></div>
       <div><label for="title">Tên hiển thị</label>
-        <input id="title" type="text" placeholder="VulnShop"></div>
+        <input id="title" type="text" placeholder="tên hiện trên báo cáo"></div>
     </div>
     <div class="row">
       <div><label for="base">URL ứng dụng <span class="hint">— địa chỉ mà ZAP nhìn thấy, không phải địa chỉ trên trình duyệt bạn</span></label>

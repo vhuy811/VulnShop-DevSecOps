@@ -189,6 +189,17 @@ LABEL = {
 LABEL_ORDER = ["CONFIRMED", "UNCONFIRMED", "FILTERED"]
 
 
+def cap_so_sanh(cmp_: dict) -> tuple[dict, dict]:
+    """Lay cap (truoc, sau) tu ket qua so sanh image.
+
+    Van doc duoc khoa cu gan cung ten image, de bao cao sinh lai tu tep ket
+    qua cu khong bi trong.
+    """
+    a = cmp_.get("truoc") or cmp_.get("vulnshop:naive") or {}
+    b = cmp_.get("sau") or cmp_.get("vulnshop:hardened") or {}
+    return a, b
+
+
 def dast_section(dast: dict | None) -> str:
     """Tang 4 - trai tim cua do an: doi sanh tinh x dong roi gan ba nhan."""
     if not dast:
@@ -259,8 +270,7 @@ def trivy_section(tv: dict | None) -> str:
 
     cmp_ = tv.get("compare") or {}
     if len(cmp_) == 2:
-        a = cmp_.get("vulnshop:naive", {})
-        b = cmp_.get("vulnshop:hardened", {})
+        a, b = cap_so_sanh(cmp_)
         ta, tb = a.get("total", 0), b.get("total", 0)
         cut = (ta - tb) / ta * 100 if ta else 0
         rows = "".join(
@@ -347,7 +357,7 @@ def build(title: str, sca, sast, routes, rules_note: str, dast=None, trivy=None)
     tv_total = 0
     if trivy:
         cmp_ = trivy.get("compare") or {}
-        tv_total = (cmp_.get("vulnshop:naive") or {}).get("total", 0) \
+        tv_total = cap_so_sanh(cmp_)[0].get("total", 0) \
             or (trivy.get("image") or {}).get("total", 0)
 
     layers = ["thư viện", "mã nguồn", "phạm vi kiểm thử động"]
@@ -515,8 +525,7 @@ def main() -> int:
     if trivy:
         cmp_ = trivy.get("compare") or {}
         if len(cmp_) == 2:
-            a = cmp_["vulnshop:naive"]["total"]
-            b = cmp_["vulnshop:hardened"]["total"]
+            a, b = (x.get("total", 0) for x in cap_so_sanh(cmp_))
             print(f"  Ha tang  : image {a} -> {b} CVE sau khi gia co")
         if trivy.get("config"):
             print(f"             {trivy['config']['total']} loi cau hinh")

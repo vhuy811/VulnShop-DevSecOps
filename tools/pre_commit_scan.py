@@ -46,6 +46,23 @@ exec "{python}" "{script}" --run
 """
 
 
+def repo_goc() -> Path:
+    """Goc cua repo DANG COMMIT - khong nhat thiet la goc cua bo cong cu.
+
+    Hai duong dan nay truoc day bi gop lam mot, va hook chi chay dung khi ban
+    commit ngay trong repo chua bo cong cu. Lam viec o du an khac thi semgrep
+    duoc dua cho danh sach tep tuong doi so voi du an do, nhung lai chay voi
+    thu muc goc la bo cong cu - khong tep nao ton tai, khong canh bao nao hien
+    ra, va hook bao "khong co loi". Im lang bi trinh bay thanh an toan, dung
+    cai loi ca do an nay dat ra de tranh.
+    """
+    out = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if out.returncode != 0:
+        raise SystemExit("Khong phai thu muc git.")
+    return Path(out.stdout.strip())
+
+
 def staged_files() -> list[str]:
     """Cac tep dang cho commit, bo qua tep da xoa."""
     out = subprocess.run(
@@ -72,13 +89,18 @@ def run_semgrep(files: list[str]) -> tuple[bool, list[dict]]:
         return False, []
 
     tmp = Path(tempfile.mkdtemp()) / "out.json"
+    src = repo_goc()          # repo dang commit
     if shutil.which("semgrep"):
         cmd = ["semgrep", "scan", f"--config={RULES}", "--json",
                "--output", str(tmp), "--metrics=off", "--quiet", *files]
     elif shutil.which("docker"):
-        cmd = ["docker", "run", "--rm", "-v", f"{ROOT}:/src:ro",
+        # Hai mount tach bach: /src la ma nguon dang commit, /rules la bo rule
+        # cua bo cong cu. Gop lam mot thi hook chi chay dung o dung mot repo.
+        cmd = ["docker", "run", "--rm",
+               "-v", f"{src}:/src:ro",
+               "-v", f"{RULES}:/rules:ro",
                "-v", f"{tmp.parent}:/out", "-w", "/src", "semgrep/semgrep",
-               "semgrep", "scan", "--config=/src/semgrep-rules", "--json",
+               "semgrep", "scan", "--config=/rules", "--json",
                "--output", "/out/out.json", "--metrics=off", "--quiet", *files]
     else:
         print("  Khong tim thay semgrep lan docker.")
@@ -86,7 +108,7 @@ def run_semgrep(files: list[str]) -> tuple[bool, list[dict]]:
 
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              timeout=180, cwd=ROOT)
+                              timeout=180, cwd=src)
     except subprocess.TimeoutExpired:
         print("  Qua 180 giay, bo do.")
         return False, []

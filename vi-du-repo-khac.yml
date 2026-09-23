@@ -1,0 +1,60 @@
+name: Bao mat
+
+# ==========================================================================
+# MAU DE DAN VAO REPO KHAC.
+#
+# Chep tep nay vao repo can quet, duong dan .github/workflows/bao-mat.yml,
+# sua vai dong o phan "with:" cho khop du an cua ban. Khong can copy tools/,
+# khong can copy semgrep-rules/ - pipeline tu keo chung ve luc chay.
+#
+# Toi thieu chi can dung nay:
+#
+#     jobs:
+#       security:
+#         uses: vhuy811/VulnShop-DevSecOps/.github/workflows/devsecops-reusable.yml@main
+#         secrets: inherit
+#
+# Khong khai bao project-file thi bon tang tinh van chay (secret, thu vien,
+# ma nguon, ha tang), chi tang doi sanh dong bi bo qua - va trang ket qua se
+# NOI RO la da bo qua, chu khong im lang.
+# ==========================================================================
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * 1'
+
+jobs:
+  security:
+    uses: vhuy811/VulnShop-DevSecOps/.github/workflows/devsecops-reusable.yml@main
+    with:
+      # --- Bat buoc sua cho khop du an cua ban ---------------------------
+      project-file: MyApp/MyApp.csproj   # de trong '' neu khong phai .NET
+      health-path: /                     # duong dan kiem tra app da len chua
+
+      # Repo khong khoi dong duoc trong CI vi thieu CSDL hay dich vu phu thi
+      # dat false. Bon tang tinh van chay, chi tang doi sanh dong bi bo qua -
+      # va trang ket qua se noi ro la da bo qua, khong im lang.
+      run-dast: true
+
+      # --- Tuy chon, co gia tri mac dinh hop ly --------------------------
+      # dotnet-version: '9.0.x'
+      # dockerfile: Dockerfile
+      # app-url: http://localhost:5000
+      # title: Ten hien thi tren bao cao
+
+      # Ghim mot tag thay vi main khi dung that. Pipeline doi thi ket qua doi
+      # theo, va mot thay doi ben phia bo cong cu se lam hong build cua ban
+      # vao mot ngay ban khong sua gi ca.
+      # toolkit-ref: v1.0.0
+
+      # Repo da co san lo hong tu truoc thi dat false de ap dung dan: pipeline
+      # van quet va van bao cao day du, nhung chua chan merge. Bat len true
+      # sau khi da tra xong no ky thuat.
+      fail-on-confirmed: true
+
+    # Telegram la tuy chon. Khong khai bao hai secret thi buoc gui tin nhan tu
+    # bo qua, khong lam hong pipeline.
+    secrets: inherit

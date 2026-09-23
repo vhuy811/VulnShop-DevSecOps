@@ -102,7 +102,7 @@ add("API ZAP o cong 8090", zap_up, detail,
 
 
 # --------------------------------------------------------------------------
-# 5. Ung dung VulnShop nhin tu CHINH MAY NAY
+# 5. Ung dung dich nhin tu CHINH MAY NAY
 # --------------------------------------------------------------------------
 host_urls = [f"http://localhost:{APP_PORT}",
              f"http://127.0.0.1:{APP_PORT}",
@@ -112,10 +112,10 @@ for u in host_urls:
     c, _ = http_get(u, timeout=4)
     if c:
         reachable.append(u)
-add("VulnShop nhin tu may nay", bool(reachable),
+add("Ung dung dich nhin tu may nay", bool(reachable),
     ("phan hoi tai: " + ", ".join(reachable)) if reachable
     else "khong dia chi nao phan hoi",
-    "Mo mot cua so terminal rieng trong thu muc VulnShop va chay:\n"
+    "Mo mot cua so terminal rieng trong thu muc ung dung dich va chay:\n"
     "       dotnet run --urls http://localhost:5000")
 
 # Rieng cai ten host.docker.internal co phan giai duoc tu Windows khong
@@ -142,7 +142,7 @@ if zap_up:
         if c == 200:
             best = target
             break
-    add("ZAP voi toi VulnShop", bool(best),
+    add("ZAP voi toi ung dung dich", bool(best),
         f"ZAP truy cap duoc {best}" if best
         else "ZAP khong truy cap duoc ca host.docker.internal lan localhost",
         "" if best else
@@ -169,8 +169,8 @@ for f, why in (("semgrep-rules/sast-detect.yaml", "thieu file nay thi chay rule 
 # 8. Tep ket qua cu con sot lai
 # --------------------------------------------------------------------------
 reports = ROOT / "reports"
-stale = sorted(p.name for p in reports.glob("*VulnShop*")) if reports.is_dir() else []
-add("Tep ket qua cu cua VulnShop", True,
+stale = sorted(p.name for p in reports.glob("*.json")) if reports.is_dir() else []
+add("Tep ket qua cu con sot lai", True,
     f"{len(stale)} tep - webui.py se tu xoa truoc khi quet" if stale else "khong co",
     "")
 
@@ -181,7 +181,7 @@ add("Tep ket qua cu cua VulnShop", True,
 w = max(len(r[0]) for r in rows) + 2
 print()
 print("=" * (w + 60))
-print("KIEM TRA MOI TRUONG DEMO - VulnShop")
+print("KIEM TRA MOI TRUONG - quy trinh DevSecOps")
 print("=" * (w + 60))
 for name, ok, detail, _ in rows:
     print(f"  [{('OK' if ok else 'HONG'):<4}]  {name.ljust(w)}{detail}")
