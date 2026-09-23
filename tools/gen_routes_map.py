@@ -328,7 +328,24 @@ def main() -> None:
     page_files = ([] if args.no_razor else
                   [f for f in sorted(root.rglob("*.cshtml.cs")) if not skip(f)])
     if not ctrl_files and not page_files:
-        raise SystemExit(f"Khong tim thay Controller hay Razor Page nao duoi {root}")
+        # "Quet roi, khong co gi" KHAC "khong quet duoc". Truoc day cho nay
+        # thoat voi ma 1, nen mot repo khong phai .NET - hoac repo chi chua bo
+        # cong cu - lam ca pipeline do, dung nhu the co su co. Khong phai: day
+        # la mot ket qua hop le, va no bang 0.
+        #
+        # Van ghi ra tep ban do rong de buoc dung bao cao phia sau co cai de
+        # doc, va de bang ket qua hien "0/0" thay vi bien mat khong giai thich.
+        print(f"Khong co Controller hay Razor Page nao duoi {root}.")
+        print("Day la ket qua hop le (0 endpoint), khong phai loi: repo nay")
+        print("khong chua ung dung ASP.NET. Ghi ban do rong va di tiep.")
+        Path(args.out).write_text(json.dumps({
+            "app_base_url": args.base_url,
+            "generated_from": {"controllers": 0, "razor_pages": 0},
+            "summary": {},
+            "by_kind": {},
+            "routes": [],
+        }, indent=2, ensure_ascii=False), encoding="utf-8")
+        return
 
     routes = []
     for f in ctrl_files:
