@@ -1,0 +1,476 @@
+name: DevSecOps - nam tang kiem thu (dung chung)
+
+# ==========================================================================
+# WORKFLOW DUNG CHUNG - mot pipeline, nhieu repo.
+#
+# Repo khac khong can copy tools/ hay semgrep-rules/. No chi can them mot tep
+# nho trong .github/workflows/ goi toi day:
+#
+#     jobs:
+#       security:
+#         uses: vhuy811/VulnShop-DevSecOps/.github/workflows/devsecops-reusable.yml@main
+#         with:
+#           project-file: MyApp/MyApp.csproj
+#           health-path: /
+#         secrets: inherit
+#
+# Day la cach to chuc that trien khai DevSecOps: pipeline nam mot cho, hang
+# tram repo tham chieu toi. Sua mot lan, ca tram repo duoc cap nhat. Neu moi
+# repo giu mot ban sao thi sau sau thang chung se troi moi noi mot kieu.
+#
+# DIEU CAN BIET: workflow duoc goi se checkout ma nguon cua REPO GOI NO, chu
+# khong phai repo chua workflow. Nen no phai TU keo bo cong cu ve, vao thu muc
+# .devsecops-toolkit/ - va moi buoc quet deu phai loai thu muc do ra, neu
+# khong ket qua se lan ma nguon cua bo cong cu vao ma nguon cua repo dich.
+# ==========================================================================
+
+on:
+  workflow_call:
+    inputs:
+      project-file:
+        description: 'Duong dan toi .csproj. De trong thi bo qua build, chay app va ca tang dong.'
+        type: string
+        required: false
+        default: ''
+      app-url:
+        description: 'URL ung dung sau khi chay len, de ZAP ban payload vao.'
+        type: string
+        required: false
+        default: 'http://localhost:5000'
+      health-path:
+        description: 'Duong dan de kiem tra app da san sang chua, vi du /Product/List.'
+        type: string
+        required: false
+        default: '/'
+      dotnet-version:
+        description: 'Phien ban .NET SDK.'
+        type: string
+        required: false
+        default: '9.0.x'
+      dockerfile:
+        description: 'Dockerfile dung cho buoc quet image. Khong co tep thi buoc do tu bo qua.'
+        type: string
+        required: false
+        default: 'Dockerfile'
+      title:
+        description: 'Ten hien thi tren bao cao. De trong thi lay ten repo.'
+        type: string
+        required: false
+        default: ''
+      toolkit-ref:
+        description: 'Nhanh hoac tag cua bo cong cu. Production nen ghim tag thay vi main.'
+        type: string
+        required: false
+        default: 'main'
+      fail-on-confirmed:
+        description: 'true thi co CONFIRMED la chan merge. Dat false de ap dung dan o repo co san no ky thuat.'
+        type: boolean
+        required: false
+        default: true
+      run-dast:
+        description: >-
+          Chay tang doi sanh dong hay khong. Dat false cho repo khong khoi dong
+          duoc trong CI vi thieu CSDL hay dich vu phu. Bon tang tinh van chay
+          binh thuong, va trang ket qua se NOI RO la tang dong da bi bo qua -
+          khong de nguoi doc hieu nham thanh "da kiem chung va sach".
+        type: boolean
+        required: false
+        default: true
+      run-image-scan:
+        description: 'Quet CVE trong container image. Ton them vai phut nen mac dinh chi chay o nhanh chinh.'
+        type: boolean
+        required: false
+        default: true
+    secrets:
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # can de day SARIF len Code Scanning
+
+    env:
+      TOOLKIT: .devsecops-toolkit
+      TITLE: ${{ inputs.title != '' && inputs.title || github.event.repository.name }}
+
+    steps:
+      - name: Lay ma nguon cua repo goi
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Mot commit chi sua tai lieu thi khong can build ung dung va ban payload.
+      # Nhung KHONG duoc dung paths-ignore o phan "on:" de lam viec nay: check
+      # nay thuong la Required, workflow khong chay thi GitHub treo PR vinh
+      # vien o "Expected - waiting for status to be reported" va khong con
+      # merge duoc nua. Vi vay job VAN chay, chi bo bot buoc ben trong.
+      - name: Xac dinh pham vi thay doi
+        id: pham_vi
+        run: |
+          EV="${{ github.event_name }}"
+          if [ "$EV" = "schedule" ] || [ "$EV" = "workflow_dispatch" ]; then
+            echo "Quet dinh ky hoac chay tay: quet day du."
+            echo "chi_tai_lieu=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EV" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
+             || ! git rev-parse --verify --quiet "$BASE^{commit}" > /dev/null; then
+            echo "Khong co moc de so sanh (nhanh vua tao): quet day du."
+            echo "chi_tai_lieu=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE" HEAD)
+          echo "Tep thay doi so voi $BASE:"
+          echo "$CHANGED" | sed 's/^/    /'
+
+          KHAC=$(echo "$CHANGED" | grep -vE '\.(md|txt|png|jpe?g|gif)$|^docs/|^LICENSE' || true)
+
+          if [ -n "$CHANGED" ] && [ -z "$KHAC" ]; then
+            echo "chi_tai_lieu=true" >> "$GITHUB_OUTPUT"
+            echo "==> Chi thay doi tai lieu. Bo qua cac tang can build va chay ung dung."
+          else
+            echo "chi_tai_lieu=false" >> "$GITHUB_OUTPUT"
+            echo "==> Co thay doi ma nguon hoac cau hinh: quet day du."
+          fi
+
+      # ===============================================================
+      # TANG 0 - Secret
+      # Chay TRUOC khi keo bo cong cu ve, de khong quet nham ma nguon cua
+      # chinh bo cong cu. Re nhat va hau qua nang nhat: mot khoa API lo vao
+      # lich su git thi xoa o commit sau khong go duoc no khoi commit truoc.
+      # ===============================================================
+      - name: Gitleaks - quet secret trong ma nguon
+        run: |
+          mkdir -p reports
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --no-git \
+            --report-format=sarif --report-path=/repo/reports/gitleaks.sarif \
+            --exit-code 0 --redact
+
+          # Gitleaks KHONG tao tep SARIF khi khong tim thay gi. Doc thang vao
+          # tep do lam buoc nay hong ngay ca khi ma nguon sach.
+          #
+          # Xu ly dung: tao mot SARIF rong hop le de buoc day ket qua o cuoi
+          # van chay duoc, va NOI RO trong log rang "khong co tep" khac voi
+          # "da quet va sach" - dung nguyen tac cua chinh do an nay.
+          if [ -f reports/gitleaks.sarif ]; then
+            N=$(python -c "import json;print(sum(len(r.get('results',[])) for r in json.load(open('reports/gitleaks.sarif')).get('runs',[])))")
+            echo "Gitleaks: $N phat hien."
+          else
+            N=0
+            printf '{"version":"2.1.0","$schema":"https://json.schemastore.org/sarif-2.1.0.json","runs":[]}' \
+              > reports/gitleaks.sarif
+            echo "Gitleaks khong sinh bao cao. Coi nhu 0 phat hien de pipeline di tiep,"
+            echo "nhung day la 'khong co ket qua' chu chua phai bang chung ma nguon sach."
+          fi
+          echo "GITLEAKS_COUNT=$N" >> $GITHUB_ENV
+
+      - name: Keo bo cong cu DevSecOps ve
+        uses: actions/checkout@v4
+        with:
+          repository: vhuy811/VulnShop-DevSecOps
+          ref: ${{ inputs.toolkit-ref }}
+          path: .devsecops-toolkit
+
+      - name: Cai .NET SDK
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true' && inputs.project-file != ''
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Cai phu thuoc Python
+        run: pip install requests
+
+      # ===============================================================
+      # TANG 1 - Thu vien (SCA): CVE trong goi NuGet
+      # Tang nay khong suy doan: no so phien ban voi CSDL lo hong da cong bo.
+      # ===============================================================
+      - name: SCA - doi chieu thu vien voi CSDL lo hong
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true' && inputs.project-file != ''
+        run: |
+          dotnet restore "${{ inputs.project-file }}"
+          python "$TOOLKIT/tools/sca.py" --repo . --out reports/sca.json || true
+          if [ -f reports/sca.json ]; then
+            python - <<'PY'
+          import json
+          s = json.load(open("reports/sca.json"))["summary"]
+          print(f"SCA: {s['packages']} goi dinh lo hong, {s['advisories']} advisory")
+          print(f"     Critical {s['by_severity']['Critical']}, High {s['by_severity']['High']}")
+          PY
+          fi
+
+      # ===============================================================
+      # TANG 2 - Ma nguon (SAST): CWE trong ma minh viet
+      # Hai lan quet vi hai muc dich nguoc nhau: mot tim dau hieu nguy hiem,
+      # mot tim bang chung an toan. Ca hai deu la dau vao cua buoc doi sanh.
+      #
+      # --exclude .devsecops-toolkit la bat buoc: khong loai ra thi Semgrep
+      # quet ca ma nguon cua bo cong cu va cua ung dung mau VulnShop di kem,
+      # roi bao cao se ghi nhan lo hong cua VulnShop nhu la cua repo dich.
+      # ===============================================================
+      - name: Semgrep - bo rule phat hien
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true'
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep \
+            semgrep scan --config "$TOOLKIT/semgrep-rules/sast-detect.yaml" \
+            --exclude "$TOOLKIT" \
+            --sarif --output reports/semgrep.sarif --metrics=off
+
+      - name: Semgrep - bo rule kiem sanitizer
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true'
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep \
+            semgrep scan --config "$TOOLKIT/semgrep-rules/sanitizer-check.yaml" \
+            --exclude "$TOOLKIT" \
+            --sarif --output reports/sanitizers.sarif --metrics=off
+
+      # ===============================================================
+      # TANG 3 - Ha tang: cau hinh trien khai + SBOM
+      # Ba tang tren chi doc ma nguon ung dung. Tang nay doc thu ma chung mu:
+      # Dockerfile va cac goi he dieu hanh di kem image.
+      #
+      # Goi thang image Trivy thay vi dung action co san, vi hai ly do:
+      #   1. Action phai ghim so phien ban, va mot tag sai lam hong ca job vi
+      #      mot ly do khong lien quan gi toi an ninh.
+      #   2. Cach nay giong het tools/trivy.py chay tren may lap trinh vien,
+      #      nen ket qua cuc bo va ket qua CI so sanh duoc voi nhau.
+      # ===============================================================
+      - name: Trivy - quet cau hinh trien khai
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true'
+        run: |
+          docker run --rm -v "$PWD:/target:ro" -v "$PWD/reports:/out" \
+            aquasec/trivy:latest config /target \
+            --skip-dirs "/target/$TOOLKIT" \
+            --format sarif --output /out/trivy-config.sarif \
+            --exit-code 0 --quiet
+          echo "Loi cau hinh: $(python -c "import json;print(sum(len(r.get('results',[])) for r in json.load(open('reports/trivy-config.sarif')).get('runs',[])))" 2>/dev/null || echo '?')"
+
+      - name: Trivy - sinh SBOM (CycloneDX)
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true'
+        run: |
+          docker run --rm -v "$PWD:/target:ro" -v "$PWD/reports:/out" \
+            aquasec/trivy:latest fs /target \
+            --skip-dirs "/target/$TOOLKIT" \
+            --format cyclonedx --output /out/sbom.cdx.json --quiet
+          echo "SBOM: $(python -c "import json;print(len(json.load(open('reports/sbom.cdx.json')).get('components',[])))" 2>/dev/null || echo '?') thanh phan"
+
+      # Quet image ton them vai phut nen chi chay o nhanh chinh, khi bam tay, va
+      # o lan quet dinh ky - khong chay o moi pull request. Danh doi thoi gian
+      # CI la mot quyet dinh thiet ke that cua DevSecOps, khong phai cat xen cho
+      # tien: cong chan lam lap trinh vien cho lau se bi tim cach vong qua.
+      - name: Trivy - quet container image
+        if: >-
+          inputs.run-image-scan &&
+          steps.pham_vi.outputs.chi_tai_lieu != 'true' &&
+          (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+           github.event_name == 'workflow_dispatch' ||
+           github.event_name == 'schedule')
+        run: |
+          if [ ! -f "${{ inputs.dockerfile }}" ]; then
+            echo "Khong co ${{ inputs.dockerfile }} - bo qua buoc quet image."
+            echo "Luu y: day la 'khong quet' chu khong phai 'image sach'."
+            exit 0
+          fi
+          docker build -f "${{ inputs.dockerfile }}" -t quet-ci:latest .
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image quet-ci:latest --scanners vuln \
+            --severity CRITICAL,HIGH --quiet || true
+
+      # ===============================================================
+      # TANG 4 - Doi sanh tinh x dong
+      # ===============================================================
+      # Ban do route la TANG 3, quet tinh tren Controller va Razor Page. No do
+      # pham vi ap dung cua kiem thu dong, nen van co gia tri ke ca khi tang
+      # dong bi tat - luc do no tra loi "neu chay duoc thi se phu duoc bao
+      # nhieu phan tram".
+      - name: Sinh lai ban do route
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true'
+        run: |
+          python "$TOOLKIT/tools/gen_routes_map.py" \
+            --root . --base-url "${{ inputs.app-url }}" \
+            --out routes_map.json
+
+      - name: Build
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true' && inputs.run-dast && inputs.project-file != ''
+        run: dotnet build "${{ inputs.project-file }}" -c Release
+
+      - name: Chay ung dung o nen
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true' && inputs.run-dast && inputs.project-file != ''
+        run: |
+          nohup dotnet run --project "${{ inputs.project-file }}" \
+            --urls http://0.0.0.0:5000 > app.log 2>&1 &
+          for i in $(seq 1 40); do
+            if curl -sf "${{ inputs.app-url }}${{ inputs.health-path }}" > /dev/null; then
+              echo "Ung dung da san sang sau ${i} lan thu."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Ung dung khong khoi dong duoc:"; cat app.log; exit 1
+
+      # Tren runner Linux dung --network host, nen ZAP goi thang localhost.
+      # Khac voi may Windows phai dung host.docker.internal.
+      - name: Khoi dong OWASP ZAP dang daemon
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true' && inputs.run-dast && inputs.project-file != ''
+        run: |
+          docker run -d --name zap --network host zaproxy/zap-stable \
+            zap.sh -daemon -host 0.0.0.0 -port 8090 \
+            -config api.addrs.addr.name=.* \
+            -config api.addrs.addr.regex=true \
+            -config api.disablekey=true
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8090/JSON/core/view/version/ > /dev/null; then
+              echo "ZAP da san sang sau ${i} lan thu."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ZAP khong khoi dong duoc:"; docker logs zap; exit 1
+
+      - name: Doi sanh SAST-DAST va quality gate
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true' && inputs.run-dast && inputs.project-file != ''
+        id: correlate
+        run: |
+          python "$TOOLKIT/tools/correlate.py" \
+            --findings reports/semgrep.sarif \
+            --sanitizers reports/sanitizers.sarif \
+            --routes routes_map.json \
+            --zap http://localhost:8090 \
+            --base-url "${{ inputs.app-url }}" \
+            --scan-timeout 300 \
+            ${{ inputs.fail-on-confirmed && '--fail-on-confirmed' || '' }}
+
+      # ===============================================================
+      # BAO CAO - chay ca khi quality gate da that bai, vi luc that bai
+      # moi la luc nguoi ta can doc bao cao nhat.
+      # ===============================================================
+      - name: Dung bao cao HTML
+        if: always() && steps.pham_vi.outputs.chi_tai_lieu != 'true'
+        run: |
+          ARGS=""
+          [ -f reports/sca.json ]       && ARGS="$ARGS --sca reports/sca.json"
+          [ -f reports/semgrep.sarif ]  && ARGS="$ARGS --sast reports/semgrep.sarif"
+          [ -f routes_map.json ]        && ARGS="$ARGS --routes routes_map.json"
+          [ -f reports/findings.json ]  && ARGS="$ARGS --dast reports/findings.json"
+          python "$TOOLKIT/tools/report.py" --title "$TITLE" \
+            $ARGS --out reports/bao_cao.html || true
+
+      - name: Tom tat len trang ket qua cua lan chay
+        if: always()
+        env:
+          CHI_TAI_LIEU: ${{ steps.pham_vi.outputs.chi_tai_lieu }}
+          CO_DAST: ${{ inputs.run-dast && inputs.project-file != '' }}
+        run: |
+          python - <<'PY' >> $GITHUB_STEP_SUMMARY
+          import json, os
+          from pathlib import Path
+
+          def j(p):
+              q = Path(p)
+              return json.loads(q.read_text(encoding="utf-8")) if q.exists() else None
+
+          print("## Ket qua quet bao mat\n")
+
+          # Bo qua co y van phai duoc NOI RA. Mot bang thieu tang ma khong giai
+          # thich se bi doc nham thanh "da quet va sach".
+          if os.environ.get("CHI_TAI_LIEU") == "true":
+              print("> **Lan chay nay chi thay doi tai lieu.** Cac tang can build va")
+              print("> chay ung dung da duoc BO QUA CO Y - day khong phai ket qua")
+              print("> \"da quet va khong thay gi\". Tang quet secret van chay, vi mot")
+              print("> tep .md van co the chua token bi dan nham.\n")
+          elif os.environ.get("CO_DAST") != "true":
+              print("> **Tang doi sanh tinh x dong da BI BO QUA** o lan chay nay, vi")
+              print("> repo khong khai bao project-file hoac da dat run-dast: false.")
+              print("> Cac tang tinh o duoi van co gia tri, nhung KHONG canh bao nao")
+              print("> trong so do duoc kiem chung tren ung dung dang chay. Day la")
+              print("> **no kiem thu**, khong phai ket luan an toan.\n")
+
+          print("| Tang | Ket qua |")
+          print("|---|---|")
+          print(f"| 0. Secret | {os.environ.get('GITLEAKS_COUNT','?')} phat hien |")
+
+          sca = j("reports/sca.json")
+          if sca:
+              s = sca["summary"]
+              print(f"| 1. Thu vien | {s['packages']} goi dinh CVE "
+                    f"({s['by_severity']['Critical']} Critical, {s['by_severity']['High']} High) |")
+
+          sar = j("reports/semgrep.sarif")
+          if sar:
+              n = sum(len(r.get("results", [])) for r in sar.get("runs", []))
+              print(f"| 2. Ma nguon | {n} canh bao |")
+
+          rm = j("routes_map.json")
+          if rm:
+              s = rm.get("summary", {})
+              print(f"| 3. Pham vi | {s.get('testable',0)}/{sum(s.values())} endpoint kiem thu dong duoc |")
+
+          f = j("reports/findings.json")
+          if f:
+              s = f["summary"]
+              print(f"| 4. Doi sanh | **CONFIRMED {s.get('CONFIRMED',0)}** · "
+                    f"FILTERED {s.get('FILTERED',0)} · UNCONFIRMED {s.get('UNCONFIRMED',0)} |")
+              print()
+              if s.get("CONFIRMED"):
+                  print("> **Cong da chan.** Cac canh bao duoi day da duoc xac nhan la "
+                        "khai thac duoc tren ung dung dang chay:\n")
+                  for x in f["results"]:
+                      if x["label"] == "CONFIRMED":
+                          print(f"> - `{x['file']}:{x['line']}` — {x['cwe']} tai `{x.get('url','')}`")
+              else:
+                  print("> Khong co canh bao nao duoc xac nhan khai thac duoc. "
+                        "Luu y: **UNCONFIRMED khong dong nghia voi an toan** — "
+                        "do la phan chua co bang chung theo chieu nao.")
+          PY
+
+      - name: Day SARIF da gan nhan len Code Scanning
+        if: always() && hashFiles('reports/correlated.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/correlated.sarif
+          category: doi-sanh-sast-dast
+
+      - name: Day SARIF secret len Code Scanning
+        if: always() && hashFiles('reports/gitleaks.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/gitleaks.sarif
+          category: secret
+
+      - name: Day SARIF cau hinh ha tang len Code Scanning
+        if: always() && hashFiles('reports/trivy-config.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: reports/trivy-config.sarif
+          category: ha-tang
+
+      - name: Luu bao cao lam artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bao-cao-bao-mat
+          path: reports/
+
+      - name: Gui canh bao Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python "$TOOLKIT/tools/notify.py" || true
+
+      - name: Nhat ky ZAP khi co su co
+        if: failure()
+        run: docker logs zap 2>/dev/null | tail -50 || true

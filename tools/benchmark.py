@@ -164,7 +164,7 @@ def run_b3_guided(zap: BenchZap, base_url: str, zap_endpoint: str,
         [sys.executable, "tools/correlate.py",
          "--zap", zap_endpoint, "--base-url", base_url,
          "--scan-timeout", str(scan_timeout), "--no-tune"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     elapsed = time.time() - t0
     if proc.returncode not in (0, 1):  # 1 la quality gate, khong phai loi

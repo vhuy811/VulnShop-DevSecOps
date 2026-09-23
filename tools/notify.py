@@ -36,7 +36,8 @@ def build_message(data: dict) -> str:
     rate = data.get("resolution_rate", 0)
 
     icon = "\U0001F534" if n_conf else ("\U0001F7E1" if n_unc else "\U0001F7E2")
-    lines = [f"{icon} <b>VulnShop - DevSecOps pipeline</b>"]
+    ten = os.getenv("GITHUB_REPOSITORY", "").split("/")[-1] or "DevSecOps"
+    lines = [f"{icon} <b>{ten} - DevSecOps pipeline</b>"]
 
     repo = os.getenv("GITHUB_REPOSITORY")
     branch = os.getenv("GITHUB_REF_NAME")

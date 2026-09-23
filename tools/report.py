@@ -189,6 +189,17 @@ LABEL = {
 LABEL_ORDER = ["CONFIRMED", "UNCONFIRMED", "FILTERED"]
 
 
+def cap_so_sanh(cmp_: dict) -> tuple[dict, dict]:
+    """Lay cap (truoc, sau) tu ket qua so sanh image.
+
+    Van doc duoc khoa cu gan cung ten image, de bao cao sinh lai tu tep ket
+    qua cu khong bi trong.
+    """
+    a = cmp_.get("truoc") or cmp_.get("vulnshop:naive") or {}
+    b = cmp_.get("sau") or cmp_.get("vulnshop:hardened") or {}
+    return a, b
+
+
 def dast_section(dast: dict | None) -> str:
     """Tang 4 - trai tim cua do an: doi sanh tinh x dong roi gan ba nhan."""
     if not dast:
@@ -259,8 +270,7 @@ def trivy_section(tv: dict | None) -> str:
 
     cmp_ = tv.get("compare") or {}
     if len(cmp_) == 2:
-        a = cmp_.get("vulnshop:naive", {})
-        b = cmp_.get("vulnshop:hardened", {})
+        a, b = cap_so_sanh(cmp_)
         ta, tb = a.get("total", 0), b.get("total", 0)
         cut = (ta - tb) / ta * 100 if ta else 0
         rows = "".join(
@@ -322,6 +332,19 @@ def build(title: str, sca, sast, routes, rules_note: str, dast=None, trivy=None)
     n_trans = sca["summary"]["transitive"] if sca else 0
     n_code = len(sast)
     total = n_adv + n_code
+
+    # Nhan bo rule suy ra tu chinh du lieu SARIF thay vi ghi chet:
+    # moi rule rieng cua do an deu co tien to "vulnshop-".
+    n_own = sum(1 for r in sast if r.get("rule", "").startswith("vulnshop-"))
+    if not sast:
+        rules_src = "chưa có cảnh báo nào"
+    elif n_own == len(sast):
+        rules_src = "từ bộ rule riêng của đồ án"
+    elif n_own:
+        rules_src = f"{n_own}/{len(sast)} từ bộ rule riêng của đồ án"
+    else:
+        rules_src = "từ bộ rule cộng đồng"
+
     rs = routes.get("summary", {}) if routes else {}
     r_total = sum(rs.values())
     r_ok = rs.get("testable", 0)
@@ -334,7 +357,7 @@ def build(title: str, sca, sast, routes, rules_note: str, dast=None, trivy=None)
     tv_total = 0
     if trivy:
         cmp_ = trivy.get("compare") or {}
-        tv_total = (cmp_.get("vulnshop:naive") or {}).get("total", 0) \
+        tv_total = cap_so_sanh(cmp_)[0].get("total", 0) \
             or (trivy.get("image") or {}).get("total", 0)
 
     layers = ["thư viện", "mã nguồn", "phạm vi kiểm thử động"]
@@ -446,7 +469,7 @@ def build(title: str, sca, sast, routes, rules_note: str, dast=None, trivy=None)
 
   <div class="tiles">
     {tile("Gói thư viện dính lỗ hổng", n_pkg, f"{n_trans} gói là phụ thuộc gián tiếp")}
-    {tile("Cảnh báo mã nguồn", n_code, "từ bộ rule cộng đồng")}
+    {tile("Cảnh báo mã nguồn", n_code, rules_src)}
     {tile("Endpoint kiểm thử động được", f"{r_ok}/{r_total}" if r_total else "—",
           "phần còn lại ngoài phạm vi")}
     {last_tile}
@@ -502,8 +525,7 @@ def main() -> int:
     if trivy:
         cmp_ = trivy.get("compare") or {}
         if len(cmp_) == 2:
-            a = cmp_["vulnshop:naive"]["total"]
-            b = cmp_["vulnshop:hardened"]["total"]
+            a, b = (x.get("total", 0) for x in cap_so_sanh(cmp_))
             print(f"  Ha tang  : image {a} -> {b} CVE sau khi gia co")
         if trivy.get("config"):
             print(f"             {trivy['config']['total']} loi cau hinh")
