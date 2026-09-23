@@ -87,6 +87,12 @@ Tạo `.github/workflows/bao-mat.yml` trong repo cần bảo vệ:
 name: Bao mat
 on: [push, pull_request, workflow_dispatch]
 
+# Bat buoc: workflow duoc goi xin security-events de day SARIF len Code
+# Scanning. Thieu khoi nay thi lan chay bao "Startup failure" ngay lap tuc.
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   security:
     uses: vhuy811/VulnShop-DevSecOps/.github/workflows/devsecops-reusable.yml@main

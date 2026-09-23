@@ -26,6 +26,17 @@ on:
   schedule:
     - cron: '0 18 * * 1'
 
+# Khai bao quyen o day la BAT BUOC khi goi workflow khac.
+#
+# Workflow duoc goi khai bao `security-events: write` de day SARIF len Code
+# Scanning. Voi mot job thuong, quyen thieu chi bi cat bot luc chay. Nhung voi
+# `uses:`, GitHub doi chieu quyen NGAY LUC KHOI DONG: workflow duoc goi xin
+# nhieu quyen hon workflow goi no dang co thi ca lan chay that bai truoc khi
+# buoc dau tien kip chay - hien ra la "Startup failure", khong co log nao.
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   security:
     uses: vhuy811/VulnShop-DevSecOps/.github/workflows/devsecops-reusable.yml@main
