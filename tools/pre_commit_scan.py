@@ -50,7 +50,7 @@ def staged_files() -> list[str]:
     """Cac tep dang cho commit, bo qua tep da xoa."""
     out = subprocess.run(
         ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return [f for f in out.stdout.splitlines()
             if f.strip() and Path(f).suffix.lower() in EXTS]
@@ -85,7 +85,7 @@ def run_semgrep(files: list[str]) -> tuple[bool, list[dict]]:
         return False, []
 
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True,
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                               timeout=180, cwd=ROOT)
     except subprocess.TimeoutExpired:
         print("  Qua 180 giay, bo do.")
@@ -146,7 +146,7 @@ def do_run() -> int:
 
 def hook_path() -> Path:
     out = subprocess.run(["git", "rev-parse", "--git-dir"],
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
     if out.returncode != 0:
         raise SystemExit("Khong phai thu muc git.")
     return Path(out.stdout.strip()) / "hooks" / "pre-commit"

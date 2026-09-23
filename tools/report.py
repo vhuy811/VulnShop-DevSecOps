@@ -322,6 +322,19 @@ def build(title: str, sca, sast, routes, rules_note: str, dast=None, trivy=None)
     n_trans = sca["summary"]["transitive"] if sca else 0
     n_code = len(sast)
     total = n_adv + n_code
+
+    # Nhan bo rule suy ra tu chinh du lieu SARIF thay vi ghi chet:
+    # moi rule rieng cua do an deu co tien to "vulnshop-".
+    n_own = sum(1 for r in sast if r.get("rule", "").startswith("vulnshop-"))
+    if not sast:
+        rules_src = "chưa có cảnh báo nào"
+    elif n_own == len(sast):
+        rules_src = "từ bộ rule riêng của đồ án"
+    elif n_own:
+        rules_src = f"{n_own}/{len(sast)} từ bộ rule riêng của đồ án"
+    else:
+        rules_src = "từ bộ rule cộng đồng"
+
     rs = routes.get("summary", {}) if routes else {}
     r_total = sum(rs.values())
     r_ok = rs.get("testable", 0)
@@ -446,7 +459,7 @@ def build(title: str, sca, sast, routes, rules_note: str, dast=None, trivy=None)
 
   <div class="tiles">
     {tile("Gói thư viện dính lỗ hổng", n_pkg, f"{n_trans} gói là phụ thuộc gián tiếp")}
-    {tile("Cảnh báo mã nguồn", n_code, "từ bộ rule cộng đồng")}
+    {tile("Cảnh báo mã nguồn", n_code, rules_src)}
     {tile("Endpoint kiểm thử động được", f"{r_ok}/{r_total}" if r_total else "—",
           "phần còn lại ngoài phạm vi")}
     {last_tile}

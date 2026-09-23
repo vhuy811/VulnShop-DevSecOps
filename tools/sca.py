@@ -97,12 +97,12 @@ def run_dotnet(repo: Path) -> str:
 
     print(f"[SCA] dotnet restore {Path(target).name} ...", flush=True)
     subprocess.run(["dotnet", "restore", target], cwd=repo,
-                   capture_output=True, text=True, timeout=900)
+                   capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900)
 
     print(f"[SCA] dotnet list package --vulnerable ...", flush=True)
     proc = subprocess.run(
         ["dotnet", "list", target, "package", "--vulnerable", "--include-transitive"],
-        cwd=repo, capture_output=True, text=True, timeout=900,
+        cwd=repo, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900,
     )
     return proc.stdout + "\n" + proc.stderr
 

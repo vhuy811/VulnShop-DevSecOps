@@ -51,7 +51,7 @@ def trivy(args: list[str], mounts: list[str] | None = None,
         cmd += ["-v", m]
     cmd += [TRIVY_IMAGE] + args + ["--format", fmt, "--quiet"]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     out = proc.stdout.strip()
     if not out:
         raise SystemExit(f"Trivy khong tra ve gi.\n{proc.stderr[-600:]}")
@@ -138,7 +138,7 @@ def build_and_compare() -> dict:
         print(f"\n[Docker] build {tag} tu {dockerfile} ...", flush=True)
         proc = subprocess.run(
             ["docker", "build", "-f", str(ROOT / dockerfile), "-t", tag, str(ROOT)],
-            capture_output=True, text=True, timeout=1800)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800)
         if proc.returncode != 0:
             print(f"  Build that bai:\n{proc.stderr[-800:]}")
             continue

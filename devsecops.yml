@@ -120,23 +120,25 @@ jobs:
       # Ba tang tren chi doc ma nguon ung dung. Tang nay doc thu ma chung mu:
       # Dockerfile va cac goi he dieu hanh di kem image.
       # ===============================================================
+      # Goi thang image Trivy thay vi dung action co san. Hai ly do:
+      #   1. Action phai ghim so phien ban, va mot tag sai lam hong ca job vi
+      #      mot ly do khong lien quan gi toi an ninh.
+      #   2. Cach nay GIONG HET tools/trivy.py chay tren may lap trinh vien,
+      #      nen ket qua cuc bo va ket qua CI so sanh duoc voi nhau.
       - name: Trivy - quet cau hinh trien khai
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: config
-          scan-ref: .
-          format: sarif
-          output: reports/trivy-config.sarif
-          exit-code: '0'
+        run: |
+          docker run --rm -v "$PWD:/target:ro" -v "$PWD/reports:/out" \
+            aquasec/trivy:latest config /target \
+            --format sarif --output /out/trivy-config.sarif \
+            --exit-code 0 --quiet
+          echo "Loi cau hinh: $(python -c "import json;print(sum(len(r.get('results',[])) for r in json.load(open('reports/trivy-config.sarif')).get('runs',[])))" 2>/dev/null || echo '?')"
 
       - name: Trivy - sinh SBOM (CycloneDX)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          format: cyclonedx
-          output: reports/sbom.cdx.json
-          exit-code: '0'
+        run: |
+          docker run --rm -v "$PWD:/target:ro" -v "$PWD/reports:/out" \
+            aquasec/trivy:latest fs /target \
+            --format cyclonedx --output /out/sbom.cdx.json --quiet
+          echo "SBOM: $(python -c "import json;print(len(json.load(open('reports/sbom.cdx.json')).get('components',[])))" 2>/dev/null || echo '?') thanh phan"
 
       # Quet image ton them vai phut nen chi chay o nhanh chinh, khi bam tay, va
       # o lan quet dinh ky - khong chay o moi pull request. Danh doi thoi gian
