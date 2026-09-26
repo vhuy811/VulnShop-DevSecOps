@@ -262,20 +262,22 @@ Lệnh này bắn từng rule vào một tệp mã có lỗi cố ý và một t
 
 Dùng cho chương Thực nghiệm và cho buổi bảo vệ. Cần 3 người và một repo ứng dụng đã gắn pipeline (xem `HUONG_DAN_DONG_DOI.md` để đồng đội cài). Mỗi bước là một bằng chứng; chụp màn hình kết quả từng bước.
 
-Điều kiện trước: repo app đã có sẵn 4 lỗ hổng CONFIRMED (nợ cũ), branch protection đã bật với check `security / scan` và tắt bypass cho admin.
+Điều kiện trước: `main` của repo app **sạch** (0 CONFIRMED — bản có lỗ hổng nằm ở tag `ground-truth`), branch protection đã bật với check `security / scan` và tắt bypass cho admin.
 
 | # | Ai | Làm gì | Kỳ vọng | Chứng minh |
 |---|---|---|---|---|
 | 1 | B | `git push origin main` trực tiếp | GitHub từ chối `GH006` | Không có đường tắt vào main |
-| 2 | A | Nhánh `tinh-nang/loc`, thêm action mới `Product/Filter?category=` nối chuỗi vào SQL, push, mở PR | `security / scan` **đỏ**. Summary ghi `1 CONFIRMED mới`, `4 nợ cũ`. Chú thích hiện đúng dòng trong tab Files changed. Nút Merge khoá | Cổng chặn theo **bằng chứng khai thác**, không theo phỏng đoán. Nợ cũ không đổ lên A |
+| 2 | A | Nhánh `tinh-nang/loc`, thêm action mới `Product/Filter?category=` nối chuỗi vào SQL, push, mở PR | `security / scan` **đỏ**. Summary ghi `1 lỗ hổng mới`. Chú thích hiện đúng dòng trong tab Files changed. Nút Merge khoá | Cổng chặn theo **bằng chứng khai thác** — ZAP đã bắn payload và khai thác được — không theo phỏng đoán của SAST |
 | 3 | A | Thêm `// nosemgrep: vulnshop-sqli-commandtext-concat` không lý do, push | Check **xanh** — cảnh báo bị tắt nên không có gì để hỏi ZAP | Suppress qua được máy nhưng… |
 | 4 | B | Review, thấy `nosemgrep` không lý do → **Request changes** | Merge vẫn khoá | …không qua được người. Quy ước có răng |
-| 5 | A | Bỏ `nosemgrep`, vá thật bằng tham số hoá, push | Check **xanh**. Summary: `0 CONFIRMED mới, 4 nợ cũ`. Merge vẫn xám vì chưa approve | Sửa đúng thì qua. Vá được nhận diện bằng bằng chứng sanitizer (FILTERED) hoặc ZAP không khai thác được nữa |
+| 5 | A | Bỏ `nosemgrep`, vá thật bằng tham số hoá, push | Check **xanh**. Summary: `0 lỗ hổng mới`. Merge vẫn xám vì chưa approve | Sửa đúng thì qua. Vá được nhận diện bằng bằng chứng sanitizer (FILTERED) hoặc ZAP không khai thác được nữa |
 | 6 | B | Approve | Merge mở → A merge | Hai chốt độc lập: máy và người |
 | 7 | C | PR sạch trên nhánh khác, cùng lúc với bước 5 | Hai pipeline chạy song song, kết quả độc lập | Không chặn nhầm người khác |
 | 8 | Minh | Thử merge một PR đỏ bằng quyền admin | Không được | Tắt bypass áp cả chủ repo |
 
-Bước 2 và 5 là hai bước quan trọng nhất. Chúng chứng minh cổng phân biệt được **lỗ hổng mới** với **nợ cũ**, và phân biệt được **sửa thật** với **tắt cảnh báo**.
+Bước 2 và 5 là hai bước quan trọng nhất: cổng chặn được lỗ hổng **trước khi** nó vào `main`, và phân biệt được **sửa thật** với **tắt cảnh báo**.
+
+Muốn trình diễn thêm tình huống *repo có sẵn nợ cũ* — hay gặp nhất khi áp pipeline lên dự án thật — thì mở PR từ tag `ground-truth`: Summary ghi `4 nợ cũ`, cổng không chặn vì PR không thêm lỗi mới. Đó là baseline hoạt động, đã thấy ở lần chạy `#3` của repo app.
 
 Lưu ý khi chọn action cho bước 2: phải là action có **tham số GET** (`?category=`), vì tầng 5 chỉ bắn payload qua tham số GET. Đặt lỗi vào action POST thì SAST vẫn bắt nhưng ZAP không kiểm chứng được, kết quả là UNCONFIRMED và không chặn — đó là giới hạn thật, được ghi ở mục 9.
 

@@ -720,23 +720,52 @@ def main() -> int:
     # findings.json va SARIF, chi la khong chan merge cua nguoi khong gay ra no.
     chua_kiem_chung_moi = [r for r in chua_kiem_chung if r.get("moi", True)]
 
+    # ---- Canh bao vs vi tri --------------------------------------------------
+    # Mot dong ma co the bi HAI rule cung bat (rule du an + rule cong dong cung
+    # chi vao mot cho). Do la hai canh bao, nhung chi MOT lo hong. Bao cao phai
+    # noi ca hai con so, neu khong "6 CONFIRMED" se bi doc thanh 6 lo hong trong
+    # khi ground truth co 4. Vi tri = (tep, dong, CWE).
+    def vi_tri(rows: list[dict]) -> set:
+        return {(r["file"], r["line"], r["cwe"]) for r in rows}
+
+    tally_vt = {lbl: len(vi_tri([r for r in results if r["label"] == lbl]))
+                for lbl in (CONFIRMED, UNCONFIRMED, FILTERED)}
+    vt_moi = vi_tri(confirmed_moi)
+    vt_cu = vi_tri(confirmed_cu)
+
+    def so(lbl: str) -> str:
+        """'4' neu canh bao = vi tri, '6 canh bao / 4 vi tri' neu khac."""
+        n, v = tally[lbl], tally_vt[lbl]
+        return f"{n}" if n == v else f"{n} canh bao / {v} vi tri"
+
+    def gom(rows: list[dict]) -> list[tuple]:
+        """Gop cac dong cung vi tri, dem so rule da bat - de in danh sach khong lap."""
+        d: dict[tuple, dict] = {}
+        for r in rows:
+            k = (r["file"], r["line"], r["cwe"])
+            if k not in d:
+                d[k] = dict(r, so_rule=0)
+            d[k]["so_rule"] += 1
+        return sorted(d.values(), key=lambda x: (x["file"], x["line"]))
+
     print()
     print(f"Tong canh bao SAST : {len(results)}")
     if co_baseline:
-        print(f"  CONFIRMED       : {tally[CONFIRMED]}   "
-              f"({len(confirmed_moi)} moi so voi nhanh goc, {len(confirmed_cu)} no cu)")
+        print(f"  CONFIRMED       : {so(CONFIRMED)}   "
+              f"({len(vt_moi)} vi tri moi so voi nhanh goc, {len(vt_cu)} vi tri no cu)")
     else:
-        print(f"  CONFIRMED       : {tally[CONFIRMED]}")
-    print(f"  FILTERED        : {tally[FILTERED]}")
-    print(f"  UNCONFIRMED     : {tally[UNCONFIRMED]}   <- con lai cho review tay")
-    print(f"Ti le phan giai tu dong: {resolved:.0%}")
+        print(f"  CONFIRMED       : {so(CONFIRMED)}")
+    print(f"  FILTERED        : {so(FILTERED)}")
+    print(f"  UNCONFIRMED     : {so(UNCONFIRMED)}   <- con lai cho review tay")
+    print(f"Ti le phan giai tu dong: {resolved:.0%}  (tinh theo canh bao)")
     if chua_kiem_chung:
-        print(f"  Trong so do, {len(chua_kiem_chung)} canh bao nam tren endpoint "
-              f"kiem thu duoc")
+        print(f"  Trong so do, {len(vi_tri(chua_kiem_chung))} vi tri "
+              f"({len(chua_kiem_chung)} canh bao) nam tren endpoint kiem thu duoc")
         print("  nhung CHUA HE duoc hoi ZAP:")
-        for r in chua_kiem_chung:
+        for r in gom(chua_kiem_chung):
+            nhan_rule = f"  ({r['so_rule']} rule)" if r["so_rule"] > 1 else ""
             print(f"      {r['cwe']:<9}{r['file']}:{r['line']}  ->  "
-                  f"{r['url']}?{r['param']}=")
+                  f"{r['url']}?{r['param']}={nhan_rule}")
     if ngoai_tam_dast:
         nhom = sorted({r["cwe"] for r in ngoai_tam_dast})
         print(f"  Va {len(ngoai_tam_dast)} canh bao NGOAI TAM kiem thu dong "
@@ -747,13 +776,17 @@ def main() -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
-        json.dumps({"summary": tally, "resolution_rate": round(resolved, 4),
+        json.dumps({"summary": tally,
+                    "locations": tally_vt,
+                    "resolution_rate": round(resolved, 4),
                     "unverified_testable": len(chua_kiem_chung),
                     "unverified_testable_new": len(chua_kiem_chung_moi),
                     "outside_dast_scope": len(ngoai_tam_dast),
                     "baseline_used": co_baseline,
                     "confirmed_new": len(confirmed_moi),
                     "confirmed_old": len(confirmed_cu),
+                    "confirmed_new_locations": len(vt_moi),
+                    "confirmed_old_locations": len(vt_cu),
                     "results": results}, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -767,21 +800,30 @@ def main() -> int:
     # ---- Cong chan -----------------------------------------------------------
     # Co baseline: chi chan phan MOI. No cu duoc in ra ngay duoi de khong ai
     # tuong la no da het - no chi khong chan merge cua nguoi khong gay ra no.
+    # Danh sach in theo VI TRI, khong lap - mot dong bi hai rule bat thi in mot
+    # lan kem "(2 rule)".
     chu_moi = "MOI " if co_baseline else ""
+
+    def in_vi_tri(rows: list[dict]) -> None:
+        for r in gom(rows):
+            nhan_rule = f"  ({r['so_rule']} rule)" if r["so_rule"] > 1 else ""
+            print(f"      {r['cwe']:<9}{r['file']}:{r['line']}  ->  "
+                  f"{r['url']}?{r['param']}={nhan_rule}")
+
     if args.fail_on_confirmed and confirmed_moi:
-        print(f"\n[QUALITY GATE] That bai: {len(confirmed_moi)} lo hong {chu_moi}da duoc "
-              f"xac nhan khai thac duoc.")
-        for r in confirmed_moi:
-            print(f"      {r['cwe']:<9}{r['file']}:{r['line']}  ->  {r['url']}?{r['param']}=")
+        print(f"\n[QUALITY GATE] That bai: {len(vt_moi)} lo hong {chu_moi}da duoc "
+              f"xac nhan khai thac duoc ({len(confirmed_moi)} canh bao).")
+        in_vi_tri(confirmed_moi)
         if confirmed_cu:
-            print(f"  (Ngoai ra con {len(confirmed_cu)} lo hong CONFIRMED cu tu truoc - "
+            print(f"  (Ngoai ra con {len(vt_cu)} lo hong CONFIRMED cu tu truoc - "
                   f"khong chan lan nay, nhung van con do.)")
         return 1
 
     if args.fail_on_confirmed and confirmed_cu and not confirmed_moi:
         print(f"\n[QUALITY GATE] Qua. Lan thay doi nay KHONG them lo hong moi.")
-        print(f"  Nhung {len(confirmed_cu)} lo hong CONFIRMED cu van con - day la no ky "
-              f"thuat da biet, khong phai bang chung an toan.")
+        print(f"  Nhung {len(vt_cu)} lo hong CONFIRMED cu van con ({len(confirmed_cu)} "
+              f"canh bao) - day la no ky thuat da biet, khong phai bang chung an toan.")
+        in_vi_tri(confirmed_cu)
 
     if args.fail_on_unverified and chua_kiem_chung_moi:
         print(f"\n[QUALITY GATE] That bai: {len(chua_kiem_chung_moi)} canh bao tinh {chu_moi}"
