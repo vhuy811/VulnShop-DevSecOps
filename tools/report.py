@@ -219,17 +219,23 @@ def dast_section(dast: dict | None) -> str:
         chips.append(f'<span class="chip"><span class="dot" style="background:{hexv}"></span>'
                      f'{icon} {k} <b>{n}</b></span>')
 
+    co_baseline = dast.get("baseline_used", False)
     rows = []
     order = {k: i for i, k in enumerate(LABEL_ORDER)}
     for x in sorted(dast.get("results", []),
-                    key=lambda y: (order.get(y.get("label"), 9), y.get("file", ""), y.get("line", 0))):
+                    key=lambda y: (order.get(y.get("label"), 9),
+                                   not y.get("moi", True), y.get("file", ""), y.get("line", 0))):
         hexv, icon, _ = LABEL.get(x.get("label", ""), ("#898781", "○", ""))
         target = (f'<code>{esc(x.get("url", ""))}</code>'
                   f'<span class="muted">?{esc(x.get("param", ""))}=</span>'
                   if x.get("url") else '<span class="muted">không ánh xạ được</span>')
+        # Nhan "no cu" chi co y nghia khi co baseline. Khong co baseline thi
+        # khong biet cai nao cu - va khong duoc doan.
+        tag_cu = ('<span class="tag-cu">nợ cũ</span>'
+                  if co_baseline and not x.get("moi", True) else "")
         rows.append(
             f'<tr><td><span class="dot" style="background:{hexv}"></span>{icon} '
-            f'<b>{esc(x.get("label"))}</b></td>'
+            f'<b>{esc(x.get("label"))}</b>{tag_cu}</td>'
             f'<td class="nw">{esc(x.get("cwe", "—"))}</td>'
             f'<td><code>{esc(x.get("file", ""))}:{x.get("line", 0)}</code></td>'
             f'<td>{target}</td>'
@@ -237,6 +243,25 @@ def dast_section(dast: dict | None) -> str:
 
     rate = dast.get("resolution_rate", 0) * 100
     n_unc = s.get("UNCONFIRMED", 0)
+
+    # Khoi baseline: noi ro cong chan cai gi va KHONG chan cai gi.
+    n_moi = dast.get("confirmed_new", s.get("CONFIRMED", 0))
+    n_cu = dast.get("confirmed_old", 0)
+    if co_baseline:
+        baseline_note = (
+            f'<div class="scope {"warn" if n_moi else "ok"}">Baseline so với nhánh gốc: '
+            f'<b>{n_moi} CONFIRMED mới</b> do lần thay đổi này đưa vào'
+            + (f', <b>{n_cu} CONFIRMED là nợ cũ</b> từ trước — được báo cáo đầy đủ nhưng '
+               f'không chặn merge của người không gây ra nó' if n_cu else '')
+            + '. Cổng chỉ chặn phần mới.</div>')
+    else:
+        baseline_note = ('<div class="scope warn">Không có mốc baseline (quét định kỳ, chạy tay, '
+                         'hoặc nhánh vừa tạo) — mọi cảnh báo đều tính là mới.</div>')
+
+    n_ngoai = dast.get("outside_dast_scope", 0)
+    ngoai_note = (f'<p class="note">{n_ngoai} cảnh báo thuộc CWE mà ZAP <b>không có active '
+                  f'scan rule</b> — không kiểm chứng động được, không tính vào cổng, '
+                  f'cần review tay.</p>' if n_ngoai else "")
     return f"""
     <section>
       <h2>Tầng 4 — Đối sánh tĩnh × động <span class="sub">gán ba nhãn cho từng cảnh báo</span></h2>
@@ -250,6 +275,7 @@ def dast_section(dast: dict | None) -> str:
       <div class="chips">{"".join(chips)}</div>
       <div class="scope {"ok" if rate >= 50 else "warn"}">Tỉ lệ phân giải
         {rate:.0f}% — {total - n_unc}/{total} cảnh báo có bằng chứng theo một chiều</div>
+      {baseline_note}
       <table>
         <thead><tr><th>Nhãn</th><th>CWE</th><th>Vị trí trong mã</th>
         <th>Điểm kiểm thử</th><th>Bằng chứng</th></tr></thead>
@@ -259,6 +285,7 @@ def dast_section(dast: dict | None) -> str:
       loại trừ” — tìm thấy hàm khử độc nằm trên đúng luồng dữ liệu đó. Còn
       <b>UNCONFIRMED là nợ kiểm thử</b>, không phải kết luận an toàn: {n_unc} cảnh
       báo vẫn đang chờ được chứng minh hoặc bác bỏ.</p>
+      {ngoai_note}
     </section>"""
 
 
@@ -450,6 +477,8 @@ def build(title: str, sca, sast, routes, rules_note: str, dast=None, trivy=None)
   .muted {{ color: var(--muted); }}
   .ev {{ color: var(--ink2); font-size: 12.5px; max-width: 320px; }}
   .chip, .nw {{ white-space: nowrap; }}
+  .tag-cu {{ display:inline-block; margin-left:6px; padding:1px 6px; border-radius:3px;
+             font-size:11px; font-weight:600; color:#1a1a19; background:#fab219; }}
   .scope.ok   {{ color: #0ca30c; }}
   .scope.warn {{ color: #ec835a; }}
   .scope.bad  {{ color: #d03b3b; }}

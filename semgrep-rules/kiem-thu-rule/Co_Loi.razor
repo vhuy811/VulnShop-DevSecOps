@@ -1,0 +1,13 @@
+@* FIXTURE KIEM THU RULE - PHAI BI BAT
+   rule: vulnshop-xss-markupstring-razor
+
+   Ep kieu sang MarkupString la cach Blazor noi "chuoi nay da an toan, dung ma
+   hoa no". Voi noi dung den tu nguoi dung, do la bo qua lop bao ve duy nhat. *@
+
+<div class="binh-luan">
+    @((MarkupString)NoiDung)
+</div>
+
+@code {
+    [Parameter] public string NoiDung { get; set; }
+}

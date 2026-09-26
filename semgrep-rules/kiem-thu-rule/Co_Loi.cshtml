@@ -1,0 +1,15 @@
+@*
+    FIXTURE KIEM THU RULE - PHAI BI BAT
+    rule: vulnshop-xss-html-raw-razor
+
+    Razor khong duoc Semgrep phan tich cu phap C#, nen rule tuong ung chay o
+    che do generic. Day la mot gioi han THAT cua SAST tren ngon ngu template:
+    khong co cay cu phap thi khong truy vet duoc luong du lieu, chi con doi
+    duoc chuoi ky tu.
+*@
+@model string
+
+<div class="ket-qua">
+    <h2>Ket qua tim kiem</h2>
+    <p>@Html.Raw(Model)</p>
+</div>

@@ -48,11 +48,54 @@ CONFIRMED = "CONFIRMED"
 UNCONFIRMED = "UNCONFIRMED"
 FILTERED = "FILTERED"
 
-# Tu khoa de tim active scan rule cua ZAP ung voi tung CWE.
-# Dung ten thay vi id cung vi tap rule thay doi theo phien ban va addon cai dat.
-CWE_SCANNER_KEYWORD = {
-    "CWE-89": "SQL Injection",
-    "CWE-79": "Cross Site Scripting",
+# --------------------------------------------------------------------------
+# BANG ANH XA CWE -> ACTIVE SCAN RULE CUA ZAP
+# --------------------------------------------------------------------------
+# Day la ban le cua ca he thong. CWE nao co mat trong bang nay thi canh bao
+# tinh mang CWE do moi co duong di toi nhan CONFIRMED. CWE khong co mat thi
+# khong phai "chua kiem tra" - la "KHONG CO CONG CU DE KIEM TRA", va hai chuyen
+# do phai duoc bao cao khac nhau.
+#
+# Doi chieu voi https://www.zaproxy.org/docs/alerts/ ngay 2026-09-24.
+#
+# CACH CHON SCANNER - doi tu doi TEN sang doi cweId. Ly do la hai loi that,
+# khong phai so thich:
+#
+#   1. Doi ten bat nham. Chuoi "SQL Injection" nam GON trong ten
+#      "NoSQL Injection - MongoDB", ma rule do la CWE-943 chu khong phai CWE-89.
+#      Bang cu bat nham hai rule MongoDB moi lan gap mot canh bao SQL Injection.
+#
+#   2. Doi ten hong hoan toan khi ZAP chay ngon ngu khac. Ten scanner lay qua
+#      Constant.messages.getString(...) nen duoc dich. ZAP cai ban tieng Phap
+#      thi khong tu khoa tieng Anh nao khop, va tung rule mot im lang khong
+#      duoc bat - khong co thong bao loi nao.
+#
+# Truong `cweId` CO trong ket qua /JSON/ascan/view/scanners/ (dang chuoi, vi du
+# "89"), cung voi id, name, quality, enabled. Doi theo so CWE la chinh xac va
+# khong phu thuoc ngon ngu.
+#
+#   ten       : chi de in ra cho nguoi doc, va lam duong lui neu ZAP qua cu
+#               khong tra cweId
+#   loai_tru  : cac chuoi khien duong lui theo ten bat nham (chi dung khi lui)
+#   chi_id    : khi nhieu rule cung mang mot cweId nhung kiem thu viec khac han,
+#               ghim dung id can dung. Vi du CWE-94 duoc ca "Server Side Code
+#               Injection" (90019 - dung cai ta can) lan "ELMAH Information
+#               Leak" (40028) va ".htaccess Information Leak" (40032) khai bao.
+CWE_ZAP_SCANNER: dict[str, dict] = {
+    "CWE-89":  {"ten": "SQL Injection",            "loai_tru": ("NoSQL",), "chi_id": None},
+    "CWE-79":  {"ten": "Cross Site Scripting",     "loai_tru": (),         "chi_id": None},
+    "CWE-78":  {"ten": "Remote OS Command Injection", "loai_tru": (),
+                "chi_id": {"90020", "90037"}},
+    "CWE-22":  {"ten": "Path Traversal",           "loai_tru": (),         "chi_id": None},
+    "CWE-643": {"ten": "XPath Injection",          "loai_tru": (),         "chi_id": None},
+    "CWE-611": {"ten": "XML External Entity Attack", "loai_tru": (),       "chi_id": None},
+    "CWE-918": {"ten": "Server Side Request Forgery", "loai_tru": (),      "chi_id": None},
+    "CWE-601": {"ten": "External Redirect",        "loai_tru": (),         "chi_id": None},
+    "CWE-90":  {"ten": "LDAP Injection",           "loai_tru": (),         "chi_id": None},
+    "CWE-91":  {"ten": "XSLT Injection",           "loai_tru": (),         "chi_id": None},
+    "CWE-113": {"ten": "CRLF Injection",           "loai_tru": (),         "chi_id": None},
+    "CWE-94":  {"ten": "Server Side Code Injection", "loai_tru": (),
+                "chi_id": {"90019"}},
 }
 
 
@@ -67,6 +110,10 @@ def load_sarif_results(path: Path) -> list[dict]:
     data = json.loads(path.read_text(encoding="utf-8"))
     out = []
     for run in data.get("runs", []):
+        # Dinh nghia rule nam rieng o tool.driver.rules, khong nam trong ket qua.
+        rules = {r.get("id"): r
+                 for r in run.get("tool", {}).get("driver", {}).get("rules", [])}
+
         for res in run.get("results", []):
             msg = res.get("message", {}).get("text", "")
             loc = res.get("locations", [{}])[0]
@@ -74,7 +121,17 @@ def load_sarif_results(path: Path) -> list[dict]:
             uri = phys.get("artifactLocation", {}).get("uri", "")
             line = phys.get("region", {}).get("startLine", 0)
 
+            # Tim ma CWE o CA HAI cho, theo dung thu tu:
+            #   1. Thong diep - rule tu viet cua do an ghi "CWE-89: ..." o day
+            #   2. Dinh nghia rule - rule cong dong de trong properties.tags,
+            #      dang "CWE-209: Generation of Error Message..."
+            #
+            # Truoc day chi doc thong diep, nen moi canh bao tu bat ky bo rule
+            # duoc bao tri nao deu thanh UNKNOWN va khong bao gio duoc doi sanh.
+            # Mot dong do khoa chat kha nang dung rule cua nguoi khac.
             m = CWE_RE.search(msg)
+            if not m:
+                m = CWE_RE.search(json.dumps(rules.get(res.get("ruleId", "")), ensure_ascii=False))
             cwe = f"CWE-{m.group(1)}" if m else "UNKNOWN"
 
             out.append(
@@ -181,34 +238,67 @@ class Zap:
     def ping(self) -> str:
         return self._get("/JSON/core/view/version/").get("version", "?")
 
-    def tune_scanners(self, keyword: str, strength: str = "HIGH",
+    def tune_scanners(self, cwe: str, strength: str = "HIGH",
                       threshold: str = "LOW") -> list[str]:
         """
-        Bat va tang do nhay cac active scan rule co ten khop `keyword`.
+        Bat va tang do nhay cac active scan rule cua ZAP ung voi mot ma CWE.
 
         Vi sao can: policy mac dinh cua ZAP chay o cuong do MEDIUM va nguong
         canh bao MEDIUM. O muc do, ZAP thu it payload va chi bao khi rat chac,
         nen lo hong co that van co the khong bi phat hien. Pipeline tu cau hinh
         scanner theo CWE cua canh bao SAST se sat muc tieu hon nhieu.
 
+        Luu y ve pham vi: ham nay CHI BAT THEM, khong tat bat ky rule nao khac.
+        Cac rule con lai trong policy van chay binh thuong. Do la co y - muc
+        tieu la khong bo sot, con viec dan huong the hien o cho ho rule lien
+        quan duoc day len HIGH/LOW chu khong phai o cho tat bot.
+
         Tra ve danh sach rule da chinh de ghi vao bao cao (tai lap duoc).
         """
+        spec = CWE_ZAP_SCANNER.get(cwe)
+        if spec is None:
+            return []
+
+        so_cwe = cwe.split("-")[-1]
         scanners = self._get("/JSON/ascan/view/scanners/").get("scanners", [])
-        tuned = []
+
+        # ZAP hien tai tra ve truong cweId cho tung scanner. Chi khi KHONG tim
+        # thay truong do o bat ky scanner nao (ban ZAP qua cu) moi lui ve doi
+        # ten - kem theo danh sach loai_tru de khong vo phai ho rule khac.
+        co_cweid = any(str(s.get("cweId", "0")) not in ("", "0", "None")
+                       for s in scanners)
+
+        chon = []
         for s in scanners:
-            name = s.get("name", "")
-            if keyword.lower() not in name.lower():
+            sid = str(s.get("id", ""))
+            ten = s.get("name", "")
+            if co_cweid:
+                hop = str(s.get("cweId", "")) == so_cwe
+            else:
+                thap = ten.lower()
+                hop = (spec["ten"].lower() in thap
+                       and not any(x.lower() in thap for x in spec["loai_tru"]))
+            if not hop:
                 continue
-            sid = s.get("id")
+            if spec["chi_id"] and sid not in spec["chi_id"]:
+                continue
+            chon.append((sid, ten))
+
+        if not co_cweid:
+            print("    (!) Ban ZAP nay khong tra ve cweId - dang lui ve doi ten "
+                  "scanner. Ket qua co the sai neu ZAP chay ngon ngu khac tieng Anh.")
+
+        tuned = []
+        for sid, ten in chon:
             try:
                 self._get("/JSON/ascan/action/enableScanners/", ids=sid)
                 self._get("/JSON/ascan/action/setScannerAttackStrength/",
                           id=sid, attackStrength=strength)
                 self._get("/JSON/ascan/action/setScannerAlertThreshold/",
                           id=sid, alertThreshold=threshold)
-                tuned.append(f"{sid} {name}")
+                tuned.append(f"{sid} {ten}")
             except Exception as exc:
-                print(f"    (!) Khong chinh duoc rule {sid} {name}: {exc}")
+                print(f"    (!) Khong chinh duoc rule {sid} {ten}: {exc}")
         return tuned
 
     def access_url(self, url: str) -> None:
@@ -420,11 +510,49 @@ def main() -> int:
     ap.add_argument("--no-tune", action="store_true",
                     help="Khong tu chinh scanner, dung nguyen policy mac dinh cua ZAP "
                          "(dung cho nghiem thuc doi chung B1)")
+    ap.add_argument("--fail-on-unverified", action="store_true",
+                    help="That bai khi co canh bao tinh nam tren endpoint kiem thu "
+                         "duoc nhung chua he duoc hoi ZAP - tuc la rui ro da biet "
+                         "ma khong ai kiem chung")
     ap.add_argument("--fail-on-confirmed", action="store_true",
                     help="Quality gate: thoat ma 1 neu co nhan CONFIRMED")
+    ap.add_argument("--baseline-sarif", default="",
+                    help="SARIF do Semgrep xuat voi --baseline-commit: chi chua canh bao "
+                         "MOI so voi nhanh goc. Co tep nay thi cong chi chan phan moi; "
+                         "no cu van duoc bao cao day du nhung khong chan merge.")
     args = ap.parse_args()
 
     findings = load_sarif_results(Path(args.findings))
+
+    # ---- Baseline: canh bao nao la MOI so voi nhanh goc? -------------------
+    #
+    # Khong co buoc nay thi mot repo co san lo hong tu truoc se do vinh vien:
+    # moi PR deu bi chan boi loi cua nguoi khac viet nam ngoai, va cach duy
+    # nhat de lam viec tiep la tat han cong - tuc la mat luon cai co che nay
+    # sinh ra de bao ve. Do la ly do so mot khien cac doi bo SAST sau mot tuan.
+    #
+    # Cach lam: quet TOAN BO va bao cao TOAN BO, nhung chi CHAN phan moi.
+    # Baseline ap o cong, KHONG ap o luc quet. Dung --baseline-commit ngay tu
+    # buoc Semgrep thi no cu bien mat khoi bao cao - lai la im lang bi trinh
+    # bay thanh sach.
+    #
+    # Fail-closed: khong co tep baseline (chay tay, quet dinh ky, buoc baseline
+    # hong) thi coi MOI canh bao la moi. Khong biet cai nao cu thi chan het,
+    # chu khong phai bo qua het.
+    moi_keys: set | None = None
+    if args.baseline_sarif:
+        bl = Path(args.baseline_sarif)
+        if bl.is_file():
+            moi_keys = {(r["rule_id"], r["file"], r["line"])
+                        for r in load_sarif_results(bl)}
+            print(f"[*] Baseline: {len(moi_keys)} canh bao MOI so voi nhanh goc "
+                  f"(trong tong {len(findings)}). Cong chi chan phan moi.")
+        else:
+            print(f"[!] Khong co tep baseline {bl} - coi TAT CA canh bao la moi. "
+                  f"Chat hon, khong long hon.")
+    for f in findings:
+        f["moi"] = True if moi_keys is None else \
+            (f["rule_id"], f["file"], f["line"]) in moi_keys
 
     # Tep sanitizer la TUY CHON. Quet mot repo la bang bo rule cong dong thi
     # khong co no. Thieu thi khong co bang chung loai tru, nghia la khong co
@@ -449,22 +577,51 @@ def main() -> int:
         print(f"[*] {len(findings)} canh bao SAST can xu ly. "
               f"Moi URL toi da {args.scan_timeout}s.")
 
-        # Chi bat nhung rule tuong ung voi CWE thuc su xuat hien trong ket qua SAST.
-        # Day la cho the hien ro nhat viec DAST duoc SAST dan huong: khong quet
-        # bua, chi bat dung ho rule can thiet.
+        # Day la cho the hien ro nhat viec DAST duoc SAST dan huong: ho rule
+        # ung voi CWE thuc su xuat hien trong ket qua SAST duoc day len muc
+        # HIGH/LOW, tuc la ZAP thu nhieu payload hon va bao ca khi chua that
+        # chac o dung nhung cho dang ngo.
+        #
+        # NOI CHO DUNG: buoc nay chi BAT THEM, khong tat rule nao. Cac rule
+        # con lai trong policy mac dinh van chay binh thuong. Dan huong o day
+        # nghia la "uu tien", khong phai "chi quet nhung cho nay".
         if not args.no_tune:
             wanted = {f["cwe"] for f in findings}
-            for cwe, keyword in CWE_SCANNER_KEYWORD.items():
-                if cwe in wanted:
-                    tuned = zap.tune_scanners(keyword)
-                    print(f"[*] {cwe}: da bat {len(tuned)} rule o muc HIGH/LOW")
-                    for t in tuned:
-                        print(f"      - {t}")
+            for cwe in sorted(wanted):
+                if cwe not in CWE_ZAP_SCANNER:
+                    continue
+                tuned = zap.tune_scanners(cwe)
+                nhan = CWE_ZAP_SCANNER[cwe]["ten"]
+                print(f"[*] {cwe} ({nhan}): da bat {len(tuned)} rule o muc HIGH/LOW")
+                for t in tuned:
+                    print(f"      - {t}")
+                if not tuned:
+                    print("      (!) ZAP khong co rule nao mang ma CWE nay. "
+                          "Co the thieu addon beta/alpha.")
+
+            ngoai_bang = sorted(c for c in wanted
+                                if c not in CWE_ZAP_SCANNER and c != "UNKNOWN")
+            if ngoai_bang:
+                print(f"[*] {len(ngoai_bang)} ma CWE khong co active scan rule "
+                      f"trong ZAP: {', '.join(ngoai_bang)}")
+                print("    Cac canh bao nay se khong duoc hoi ZAP va khong tinh "
+                      "vao cong chan.")
         print(flush=True)
 
     results = []
     for f in findings:
-        row = dict(f, label=UNCONFIRMED, url=None, param=None, evidence="")
+        # da_hoi_zap phan biet "hoi roi, ZAP khong thay gi" voi "chua he hoi".
+        # Hai cai nay cung ra nhan UNCONFIRMED nhung y nghia nguoc nhau, va
+        # chinh cho nay la lo hong: gop lam mot thi "khong kiem tra duoc" di
+        # qua cong y het "da kiem tra va sach".
+        # co_scanner: ZAP CO active scan rule cho ma CWE nay hay khong.
+        # Phan biet "chua ai kiem tra" voi "khong co cong cu de kiem tra".
+        # Thieu phan biet nay thi mot canh bao CWE-502 (deserialization) - ma
+        # ZAP khong he co rule tuong ung - se lam do cong vinh vien, va khong
+        # co cach nao sua ngoai viec tat cong di.
+        row = dict(f, label=UNCONFIRMED, url=None, param=None, evidence="",
+                   da_hoi_zap=False,
+                   co_scanner=f["cwe"] in CWE_ZAP_SCANNER)
 
         route = find_route(f["file"], f["line"], routes)
         if route is None:
@@ -489,7 +646,19 @@ def main() -> int:
             results.append(row)
             continue
 
-        # 3) Nho ZAP xac nhan
+        # 3) ZAP khong co active scan rule cho loai lo hong nay
+        #
+        # Day la mot su that TINH ve nang luc cong cu, biet truoc khi chay, va
+        # no la mot cau tra loi thuc su - khac han su im lang. Canh bao dung lai
+        # o UNCONFIRMED nhung KHONG tinh vao cong chan, vi khong co hanh dong
+        # nao lam no thanh CONFIRMED duoc ca.
+        if not row["co_scanner"]:
+            row["evidence"] = (f"ZAP khong co active scan rule cho {f['cwe']} "
+                               f"- khong kiem chung dong duoc")
+            results.append(row)
+            continue
+
+        # 4) Nho ZAP xac nhan
         if args.dry_run:
             row["evidence"] = "dry-run: chua goi ZAP"
         else:
@@ -501,6 +670,7 @@ def main() -> int:
                 )
                 row["label"] = CONFIRMED if ok else UNCONFIRMED
                 row["evidence"] = detail
+                row["da_hoi_zap"] = True   # ZAP tra loi that, du la tra loi "khong"
                 print(f"    => {row['label']}: {detail}", flush=True)
             except Exception as exc:  # loi ha tang khong duoc bien thanh "an toan"
                 row["evidence"] = f"Loi khi goi ZAP: {exc}"
@@ -510,28 +680,80 @@ def main() -> int:
     # ---- In bang ket qua ----
     width = max((len(r["url"] or "") for r in results), default=20) + 2
     print()
-    print(f"{'NHAN':<13}{'CWE':<9}{'URL':<{width}}{'PARAM':<8}BANG CHUNG")
+    co_baseline = moi_keys is not None
+    tieu_de_moi = f"{'MOI?':<6}" if co_baseline else ""
+    print(f"{'NHAN':<13}{'CWE':<9}{'URL':<{width}}{'PARAM':<8}"
+          f"{tieu_de_moi}BANG CHUNG")
     print("-" * (34 + width + 40))
-    for r in sorted(results, key=lambda x: x["label"]):
+    for r in sorted(results, key=lambda x: (x["label"], not x.get("moi", True))):
+        cot_moi = ("moi   " if r.get("moi", True) else "no cu ") if co_baseline else ""
         print(f"{r['label']:<13}{r['cwe']:<9}{(r['url'] or '-'):<{width}}"
-              f"{(r['param'] or '-'):<8}{r['evidence'][:52]}")
+              f"{(r['param'] or '-'):<8}{cot_moi}{r['evidence'][:52]}")
 
     tally = {lbl: sum(1 for r in results if r["label"] == lbl)
              for lbl in (CONFIRMED, UNCONFIRMED, FILTERED)}
     total = len(results) or 1
     resolved = (tally[CONFIRMED] + tally[FILTERED]) / total
 
+    confirmed_moi = [r for r in results if r["label"] == CONFIRMED and r.get("moi", True)]
+    confirmed_cu = [r for r in results if r["label"] == CONFIRMED and not r.get("moi", True)]
+
+    # Rui ro DA BIET ma CHUA AI KIEM CHUNG: co canh bao tinh, ANH XA duoc sang
+    # mot endpoint co tham so, khong co bang chung khu doc, va chua he hoi ZAP.
+    # Day khong phai "chua co bang chung theo chieu nao" chung chung - day la
+    # "dang le kiem tra duoc, nhung khong ai kiem tra".
+    chua_kiem_chung = [r for r in results
+                       if r["label"] == UNCONFIRMED and r.get("url")
+                       and r.get("param") and not r.get("da_hoi_zap")
+                       and r.get("co_scanner")]
+
+    # Ngoai tam kiem thu dong: ZAP khong co active scan rule cho ma CWE do.
+    # Tach rieng khoi nhom tren vi day KHONG phai no kiem thu - khong ai co the
+    # tra duoc mon no nay bang cach bat them tang dong. Gop chung lam mot se
+    # bien cong chan thanh cai khong bao gio qua noi, va ket cuc la nguoi ta tat
+    # han no di - dung cai ket qua ma co che nay sinh ra de tranh.
+    ngoai_tam_dast = [r for r in results
+                      if r["label"] == UNCONFIRMED and not r.get("co_scanner")
+                      and r["cwe"] != "UNKNOWN"]
+
+    # Chi phan MOI moi tinh vao cong. No cu van nam trong bang tren, van vao
+    # findings.json va SARIF, chi la khong chan merge cua nguoi khong gay ra no.
+    chua_kiem_chung_moi = [r for r in chua_kiem_chung if r.get("moi", True)]
+
     print()
     print(f"Tong canh bao SAST : {len(results)}")
-    print(f"  CONFIRMED       : {tally[CONFIRMED]}")
+    if co_baseline:
+        print(f"  CONFIRMED       : {tally[CONFIRMED]}   "
+              f"({len(confirmed_moi)} moi so voi nhanh goc, {len(confirmed_cu)} no cu)")
+    else:
+        print(f"  CONFIRMED       : {tally[CONFIRMED]}")
     print(f"  FILTERED        : {tally[FILTERED]}")
     print(f"  UNCONFIRMED     : {tally[UNCONFIRMED]}   <- con lai cho review tay")
     print(f"Ti le phan giai tu dong: {resolved:.0%}")
+    if chua_kiem_chung:
+        print(f"  Trong so do, {len(chua_kiem_chung)} canh bao nam tren endpoint "
+              f"kiem thu duoc")
+        print("  nhung CHUA HE duoc hoi ZAP:")
+        for r in chua_kiem_chung:
+            print(f"      {r['cwe']:<9}{r['file']}:{r['line']}  ->  "
+                  f"{r['url']}?{r['param']}=")
+    if ngoai_tam_dast:
+        nhom = sorted({r["cwe"] for r in ngoai_tam_dast})
+        print(f"  Va {len(ngoai_tam_dast)} canh bao NGOAI TAM kiem thu dong "
+              f"({', '.join(nhom)}):")
+        print("  ZAP khong co active scan rule cho nhung ma CWE nay, nen chung")
+        print("  khong tinh vao cong chan. Phai review tay - khong co duong tu dong.")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         json.dumps({"summary": tally, "resolution_rate": round(resolved, 4),
+                    "unverified_testable": len(chua_kiem_chung),
+                    "unverified_testable_new": len(chua_kiem_chung_moi),
+                    "outside_dast_scope": len(ngoai_tam_dast),
+                    "baseline_used": co_baseline,
+                    "confirmed_new": len(confirmed_moi),
+                    "confirmed_old": len(confirmed_cu),
                     "results": results}, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -542,8 +764,31 @@ def main() -> int:
         write_sarif(results, sarif_path)
         print(f"Da ghi {sarif_path}")
 
-    if args.fail_on_confirmed and tally[CONFIRMED] > 0:
-        print(f"\n[QUALITY GATE] That bai: {tally[CONFIRMED]} lo hong da duoc xac nhan.")
+    # ---- Cong chan -----------------------------------------------------------
+    # Co baseline: chi chan phan MOI. No cu duoc in ra ngay duoi de khong ai
+    # tuong la no da het - no chi khong chan merge cua nguoi khong gay ra no.
+    chu_moi = "MOI " if co_baseline else ""
+    if args.fail_on_confirmed and confirmed_moi:
+        print(f"\n[QUALITY GATE] That bai: {len(confirmed_moi)} lo hong {chu_moi}da duoc "
+              f"xac nhan khai thac duoc.")
+        for r in confirmed_moi:
+            print(f"      {r['cwe']:<9}{r['file']}:{r['line']}  ->  {r['url']}?{r['param']}=")
+        if confirmed_cu:
+            print(f"  (Ngoai ra con {len(confirmed_cu)} lo hong CONFIRMED cu tu truoc - "
+                  f"khong chan lan nay, nhung van con do.)")
+        return 1
+
+    if args.fail_on_confirmed and confirmed_cu and not confirmed_moi:
+        print(f"\n[QUALITY GATE] Qua. Lan thay doi nay KHONG them lo hong moi.")
+        print(f"  Nhung {len(confirmed_cu)} lo hong CONFIRMED cu van con - day la no ky "
+              f"thuat da biet, khong phai bang chung an toan.")
+
+    if args.fail_on_unverified and chua_kiem_chung_moi:
+        print(f"\n[QUALITY GATE] That bai: {len(chua_kiem_chung_moi)} canh bao tinh {chu_moi}"
+              f"nam tren endpoint kiem thu duoc")
+        print("nhung khong lan nao duoc hoi ZAP. Day la rui ro DA BIET ma CHUA AI")
+        print("KIEM CHUNG - khong phai bang chung an toan.")
+        print("Xu ly: bat tang dong len, hoac ghi nhan ngoai le co ly do.")
         return 1
     return 0
 

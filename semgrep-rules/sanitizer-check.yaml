@@ -1,8 +1,53 @@
-# Bo rule KIEM SANITIZER - khong phai rule tim loi.
+# =============================================================================
+# BO RULE KIEM SANITIZER - khong phai rule tim loi
+# =============================================================================
+#
 # Nhiem vu: tim BANG CHUNG TINH rang duong du lieu da bi vo hieu hoa.
-# Engine Python dung ket qua nay de day mot canh bao sang nhan FILTERED.
+# Tang doi sanh dung ket qua nay de day mot canh bao sang nhan FILTERED.
 # Khong co bang chung o day thi canh bao KHONG duoc phep thanh FILTERED.
+#
+# -----------------------------------------------------------------------------
+# NGUYEN TAC QUAN TRONG NHAT CUA TEP NAY
+#
+# Chi viet rule sanitizer khi co MOT API THUC SU VO HIEU HOA duoc lo hong do.
+# Khong viet rule cho nhung ham "trong co ve dang kiem tra" nhung khong chan
+# duoc tan cong. Mot rule sanitizer sai khong lam bao cao on ao hon - no lam
+# dieu te hon nhieu: day mot lo hong that sang nhan FILTERED, tuc la tuyen bo
+# "da co bang chung an toan" trong khi khong he co. Duong tinh gia chi ton thoi
+# gian; AM TINH GIA la thu di ra san xuat.
+#
+# Vi du cu the da tu choi viet:
+#   - SSRF: Uri.IsWellFormedUriString KHONG chan SSRF. Dia chi
+#     http://169.254.169.254/ hoan toan dung dinh dang.
+#   - Response splitting: kiem tra Contains("\n") la lop chan yeu, de vong qua
+#     bang ma hoa khac.
+#
+# -----------------------------------------------------------------------------
+# CWE CO RULE SANITIZER (co the ra nhan FILTERED):
+#   CWE-89   tham so hoa truy van
+#   CWE-79   ma hoa HTML
+#   CWE-78   tach doi so bang ArgumentList
+#   CWE-22   Path.GetFileName cat bo phan thu muc
+#   CWE-611  tat DTD / bo XmlResolver
+#   CWE-601  LocalRedirect / Url.IsLocalUrl
+#   CWE-91   SecurityElement.Escape / XmlWriter ma hoa san
+#
+# CWE KHONG CO RULE SANITIZER - va day la co y, khong phai bo sot:
+#   CWE-918 (SSRF)      khong co API chuan nao vo hieu hoa; phai la danh sach
+#                       cho phep theo tung ung dung, khong nhan dang tinh duoc
+#   CWE-90  (LDAP)      .NET khong co ham escape LDAP trong thu vien chuan
+#   CWE-643 (XPath)     tham so hoa XPath phai tu viet IXsltContextVariable
+#   CWE-113 (splitting) khong co ham chuan
+#   CWE-94  (code inj)  khong ton tai khai niem "chay ma nguoi dung an toan"
+#
+# Canh bao thuoc nhom thu hai chi co hai ket cuc: CONFIRMED neu ZAP khai thac
+# duoc, hoac UNCONFIRMED. Chung khong bao gio duoc FILTERED - va do la cau tra
+# loi dung, vi khong ai chung minh duoc chung an toan bang cach doc ma nguon.
+# =============================================================================
+
 rules:
+
+  # ---------------- CWE-89 : truy van da tham so hoa ----------------
   - id: vulnshop-sanitizer-sql-parameterized
     languages: [csharp]
     severity: INFO
@@ -14,7 +59,44 @@ rules:
       - pattern: $CMD.Parameters.AddWithValue(...)
       - pattern: $CMD.Parameters.Add(...)
       - pattern: $CMD.Parameters.AddRange(...)
+      - pattern: new SqlParameter(...)
+      - pattern: new NpgsqlParameter(...)
+      - pattern: new MySqlParameter(...)
 
+  - id: vulnshop-sanitizer-sql-ef-interpolated
+    languages: [csharp]
+    severity: INFO
+    message: >-
+      SANITIZER CWE-89: dung ban Interpolated cua Entity Framework. Ban nay
+      chuyen tung gia tri noi suy thanh tham so DbParameter, khong noi vao chuoi.
+    metadata:
+      sanitizer_for: "CWE-89"
+      category: correctness
+      references:
+        - https://learn.microsoft.com/ef/core/querying/sql-queries
+    pattern-either:
+      - pattern: $CTX.$T.FromSqlInterpolated(...)
+      - pattern: $CTX.Database.ExecuteSqlInterpolated(...)
+      - pattern: $CTX.Database.ExecuteSqlInterpolatedAsync(...)
+      - pattern: $CTX.$T.FromSql($"...")
+
+  - id: vulnshop-sanitizer-sql-dapper-params
+    languages: [csharp]
+    severity: INFO
+    message: >-
+      SANITIZER CWE-89: Dapper nhan cau lenh la chuoi hang kem doi tuong tham so.
+    metadata:
+      sanitizer_for: "CWE-89"
+      category: correctness
+    pattern-either:
+      - pattern: $CONN.Query<$T>("...", new { ... }, ...)
+      - pattern: $CONN.QueryAsync<$T>("...", new { ... }, ...)
+      - pattern: $CONN.QueryFirstOrDefault<$T>("...", new { ... }, ...)
+      - pattern: $CONN.Execute("...", new { ... }, ...)
+      - pattern: $CONN.ExecuteAsync("...", new { ... }, ...)
+      - pattern: new DynamicParameters(...)
+
+  # ---------------- CWE-79 : ma hoa HTML ----------------
   - id: vulnshop-sanitizer-html-encode
     languages: [csharp]
     severity: INFO
@@ -24,6 +106,96 @@ rules:
       category: correctness
     pattern-either:
       - pattern: HtmlEncoder.Default.Encode(...)
+      - pattern: $ENC.HtmlEncode(...)
       - pattern: WebUtility.HtmlEncode(...)
       - pattern: System.Net.WebUtility.HtmlEncode(...)
       - pattern: HttpUtility.HtmlEncode(...)
+      - pattern: System.Web.HttpUtility.HtmlEncode(...)
+      - pattern: AntiXssEncoder.HtmlEncode(...)
+      - pattern: JavaScriptEncoder.Default.Encode(...)
+
+  # ---------------- CWE-78 : tach doi so, khong qua shell ----------------
+  - id: vulnshop-sanitizer-cmd-argumentlist
+    languages: [csharp]
+    severity: INFO
+    message: >-
+      SANITIZER CWE-78: dung ArgumentList thay cho Arguments. Tung doi so duoc
+      truyen rieng biet toi tien trinh con, khong qua buoc phan tich cu phap cua
+      shell, nen khong con cho de chen lenh thu hai.
+    metadata:
+      sanitizer_for: "CWE-78"
+      category: correctness
+      references:
+        - https://learn.microsoft.com/dotnet/api/system.diagnostics.processstartinfo.argumentlist
+    pattern-either:
+      - pattern: $PSI.ArgumentList.Add(...)
+      - pattern: $PSI.ArgumentList = $L;
+
+  # ---------------- CWE-22 : cat bo phan thu muc ----------------
+  - id: vulnshop-sanitizer-path-getfilename
+    languages: [csharp]
+    severity: INFO
+    message: >-
+      SANITIZER CWE-22: Path.GetFileName cat bo moi thanh phan thu muc, ke ca
+      chuoi "../", chi giu lai ten tep.
+    metadata:
+      sanitizer_for: "CWE-22"
+      category: correctness
+      references:
+        - https://learn.microsoft.com/dotnet/api/system.io.path.getfilename
+    pattern-either:
+      - pattern: Path.GetFileName(...)
+      - pattern: System.IO.Path.GetFileName(...)
+
+  # ---------------- CWE-611 : dong DTD ----------------
+  - id: vulnshop-sanitizer-xxe-dtd-off
+    languages: [csharp]
+    severity: INFO
+    message: >-
+      SANITIZER CWE-611: DTD bi cam hoac bo doc giai tai nguyen ngoai, nen khong
+      the khai bao thuc the tro ra ngoai tai lieu.
+    metadata:
+      sanitizer_for: "CWE-611"
+      category: correctness
+    pattern-either:
+      - pattern: $S.DtdProcessing = DtdProcessing.Prohibit;
+      - pattern: $S.DtdProcessing = DtdProcessing.Ignore;
+      - pattern: $S.DtdProcessing = System.Xml.DtdProcessing.Prohibit;
+      - pattern: $S.XmlResolver = null;
+      - pattern: $DOC.XmlResolver = null;
+
+  # ---------------- CWE-601 : chi cho phep dia chi noi bo ----------------
+  - id: vulnshop-sanitizer-local-redirect
+    languages: [csharp]
+    severity: INFO
+    message: >-
+      SANITIZER CWE-601: LocalRedirect / Url.IsLocalUrl tu choi moi dia chi tuyet
+      doi tro ra ngoai ten mien, nen khong con chuyen huong ra site khac duoc.
+    metadata:
+      sanitizer_for: "CWE-601"
+      category: correctness
+      references:
+        - https://learn.microsoft.com/aspnet/core/security/preventing-open-redirects
+    pattern-either:
+      - pattern: LocalRedirect(...)
+      - pattern: return LocalRedirect(...);
+      - pattern: Url.IsLocalUrl(...)
+      - pattern: $U.IsLocalUrl(...)
+      - pattern: new LocalRedirectResult(...)
+
+  # ---------------- CWE-91 : ma hoa noi dung XML ----------------
+  - id: vulnshop-sanitizer-xml-escape
+    languages: [csharp]
+    severity: INFO
+    message: >-
+      SANITIZER CWE-91: noi dung duoc ma hoa truoc khi dat vao tai lieu XML,
+      hoac duoc ghi qua XmlWriter (tu ma hoa ky tu dac biet).
+    metadata:
+      sanitizer_for: "CWE-91"
+      category: correctness
+    pattern-either:
+      - pattern: SecurityElement.Escape(...)
+      - pattern: System.Security.SecurityElement.Escape(...)
+      - pattern: $W.WriteString(...)
+      - pattern: $W.WriteElementString(...)
+      - pattern: $W.WriteAttributeString(...)

@@ -50,6 +50,19 @@ jobs:
       # va trang ket qua se noi ro la da bo qua, khong im lang.
       run-dast: true
 
+      # Mac dinh true. Giu nguyen thi tat tang dong ma van con canh bao tinh
+      # tren endpoint kiem thu duoc se lam job do - vi do la rui ro DA BIET ma
+      # CHUA AI KIEM CHUNG. Dat false neu chap nhan trang thai do.
+      fail-on-unverified: true
+
+      # Bo rule cong dong, keo tu registry Semgrep LUC CHAY nen luon la ban
+      # moi nhat. Mac dinh 'p/csharp p/security-audit'. Them pack khac cho
+      # ngon ngu khac, vi du 'p/csharp p/security-audit p/secrets'.
+      #
+      # Dat '' de chi chay rule cua du an - chi lam vay khi can tai lap dung
+      # mot con so da cong bo trong bao cao.
+      semgrep-packs: 'p/csharp p/security-audit'
+
       # --- Tuy chon, co gia tri mac dinh hop ly --------------------------
       # dotnet-version: '9.0.x'
       # dockerfile: Dockerfile

@@ -40,6 +40,11 @@ ROOT = Path(__file__).resolve().parent.parent
 RULES = ROOT / "semgrep-rules"
 EXTS = {".cs", ".cshtml", ".razor", ".sql", ".json", ".yml", ".yaml", ".config"}
 
+# Thu muc fixture kiem thu rule chua ma CO LOI CO Y. Phai loai tru, neu khong
+# hook se chan chinh commit cua bo cong cu nay. Day khong phai ngoai le cho
+# tien - fixture la du lieu kiem thu, khong phai ma nguon ung dung.
+BO_QUA = ("semgrep-rules/kiem-thu-rule/",)
+
 HOOK = """#!/bin/sh
 # Sinh boi tools/pre_commit_scan.py - go bang: python tools/pre_commit_scan.py --uninstall
 exec "{python}" "{script}" --run
@@ -70,7 +75,8 @@ def staged_files() -> list[str]:
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return [f for f in out.stdout.splitlines()
-            if f.strip() and Path(f).suffix.lower() in EXTS]
+            if f.strip() and Path(f).suffix.lower() in EXTS
+            and not f.replace("\\", "/").startswith(BO_QUA)]
 
 
 def run_semgrep(files: list[str]) -> tuple[bool, list[dict]]:

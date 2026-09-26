@@ -36,7 +36,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).parent))
-from correlate import CWE_SCANNER_KEYWORD, Zap, seed_for  # noqa: E402
+from correlate import CWE_ZAP_SCANNER, Zap, seed_for  # noqa: E402
 
 
 class BenchZap(Zap):
@@ -73,8 +73,8 @@ def reset(zap: BenchZap, base_url: str) -> None:
     khi quet bat cu thu gi.
     """
     zap.new_session()
-    for keyword in CWE_SCANNER_KEYWORD.values():
-        zap.tune_scanners(keyword)
+    for cwe in CWE_ZAP_SCANNER:
+        zap.tune_scanners(cwe)
     time.sleep(2)  # de ZAP on dinh sau khi doi phien
     zap.access_url(base_url + "/")
     time.sleep(1)

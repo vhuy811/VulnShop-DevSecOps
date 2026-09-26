@@ -1,15 +1,72 @@
-# Bo rule PHAT HIEN - co y viet theo kieu "rule pho thong san co":
-# bat theo dau hieu be mat (noi chuoi), khong truy vet luong du lieu.
-# Vi vay no bao ca nhung cho thuc ra an toan (C5, C6) -> tao ra duong tinh gia,
-# dung lam nguyen lieu cho co che ba nhan o tang tuong quan phia sau.
+# =============================================================================
+# BO RULE PHAT HIEN - tang 2 (phan tich tinh)
+# =============================================================================
 #
-# GHI CHU CU PHAP (da kiem chung bang thuc nghiem tren Semgrep):
+# PHAM VI CO Y THU HEP. Bo rule nay KHONG co tham vong phu het moi loai lo hong.
+# No chi phu nhung CWE ma OWASP ZAP co active scan rule tuong ung, nghia la
+# nhung CWE co the di tiep den nhan CONFIRMED o tang doi sanh.
+#
+# Ly do: phan be rong (ma hoa yeu, mat khau cung trong ma nguon, deserialization
+# khong an toan, cau hinh sai...) da duoc cac bo rule cong dong p/csharp va
+# p/security-audit phu, va chung duoc cap nhat lien tuc boi nguoi lam viec do
+# toan thoi gian. Viet lai o day chi tao ra bao trung va no bao tri. Doi lai,
+# bo rule nay lam duoc thu bo rule cong dong khong lam: gan CWE theo dung bang
+# anh xa sang scanner cua ZAP, de canh bao tinh co the duoc kiem chung dong.
+#
+# Chia viec:
+#   - Rule cong dong  -> BE RONG, luon moi
+#   - Rule o day      -> BE SAU, sinh duoc nhan CONFIRMED
+#
+# -----------------------------------------------------------------------------
+# CWE DUOC PHU (deu co active scan rule trong ZAP, doi chieu voi
+# https://www.zaproxy.org/docs/alerts/ ngay 2026-09-24):
+#
+#   CWE-89    SQL Injection                 ZAP ascan 40018 + ho time-based
+#   CWE-79    Cross-Site Scripting          ZAP ascan 40012 / 40014 / 40026
+#   CWE-78    OS Command Injection          ZAP ascan 90020 / 90037
+#   CWE-22    Path Traversal                ZAP ascan 6
+#   CWE-643   XPath Injection               ZAP ascan 90021
+#   CWE-611   XML External Entity (XXE)     ZAP ascan 90023
+#   CWE-918   Server-Side Request Forgery   ZAP ascan 40046 (beta)
+#   CWE-601   Open Redirect                 ZAP ascan 20019
+#   CWE-90    LDAP Injection                ZAP ascan 40015 (alpha)
+#   CWE-91    XML / XSLT Injection          ZAP ascan 90017
+#   CWE-113   HTTP Response Splitting       ZAP ascan 40003
+#   CWE-94    Server-Side Code Injection    ZAP ascan 90019
+#
+# CWE CO Y KHONG PHU o day vi ZAP KHONG co active scan rule tuong ung, nen
+# co bat duoc cung khong bao gio kiem chung dong duoc:
+#   CWE-502 (deserialization), CWE-287 (xac thuc), CWE-639 (IDOR),
+#   CWE-200 (lo thong tin), CWE-327/326 (ma hoa yeu), CWE-798 (mat khau cung).
+# Nhung loai nay van duoc bo rule cong dong bat va van hien trong bao cao,
+# chi la chung dung lai o nhan UNCONFIRMED - va do la su that ve nang luc cua
+# cong cu, khong phai thieu sot cua rule.
+#
+# -----------------------------------------------------------------------------
+# GHI CHU CU PHAP (da kiem chung bang thuc nghiem tren Semgrep, khong phai suy doan):
 #   - Phai viet `var` LITERAL. Metavariable kieu `$T $X = ...` KHONG khop
 #     khai bao dung `var` trong C#.
 #   - Pattern dang CAU LENH (co dau `;`) cho dung mot ket qua moi vi tri.
 #     Pattern dang BIEU THUC (khong `;`) khop ca bieu thuc con -> bao trung lap.
+#   - `<... ... ...>` la toan tu bieu thuc sau: tim o moi do sau trong bieu thuc.
+#   - Razor (.cshtml) khong duoc Semgrep phan tich cu phap C# -> phai dung
+#     languages: [generic]. Day la gioi han that cua SAST tren ngon ngu template.
+#
+# QUY UOC BAT BUOC: moi rule phai ghi "CWE-nnn:" o DAU thong diep va lap lai
+# trong metadata.cwe. Tang doi sanh doc o ca hai cho; thieu ca hai thi canh bao
+# ra CWE UNKNOWN va bi loai khoi qua trinh kiem chung.
+#
+# Muc do tin cay ghi trong metadata.confidence phan anh ty le duong tinh gia
+# MONG DOI cua chinh rule do - LOW nghia la rule co bat nham, va co che ba nhan
+# o tang sau chinh la de xu ly dieu do.
+# =============================================================================
+
 rules:
-  # ---------------- CWE-89 : SQL Injection ----------------
+
+  # ===========================================================================
+  # CWE-89 : SQL Injection
+  # ===========================================================================
+
   - id: vulnshop-sqli-commandtext-concat
     languages: [csharp]
     severity: ERROR
@@ -21,7 +78,25 @@ rules:
       category: security
       subcategory: [vuln]
       confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/89.html
     pattern: $CMD.CommandText = <... $A + $B ...>;
+
+  - id: vulnshop-sqli-commandtext-interpolated
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-89: CommandText duoc dung bang chuoi noi suy hoac string.Format.
+      Gia tri duoc noi thang vao cau lenh, khong qua tham so hoa.
+    metadata:
+      cwe: "CWE-89"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: $CMD.CommandText = $"...";
+      - pattern: $CMD.CommandText = string.Format(...);
+      - pattern: $CMD.CommandText = String.Format(...);
 
   - id: vulnshop-sqli-query-string-concat
     languages: [csharp]
@@ -42,7 +117,78 @@ rules:
           metavariable: $SQL
           regex: (?i).*(sql|query|cmd).*
 
-  # ---------------- CWE-79 : Cross-Site Scripting ----------------
+  - id: vulnshop-sqli-sqlcommand-ctor-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-89: Cau lenh SQL duoc noi chuoi ngay trong ham dung SqlCommand /
+      OleDbCommand / MySqlCommand / NpgsqlCommand.
+    metadata:
+      cwe: "CWE-89"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: new SqlCommand(<... $A + $B ...>, ...)
+      - pattern: new OleDbCommand(<... $A + $B ...>, ...)
+      - pattern: new MySqlCommand(<... $A + $B ...>, ...)
+      - pattern: new NpgsqlCommand(<... $A + $B ...>, ...)
+      - pattern: new SqliteCommand(<... $A + $B ...>, ...)
+      - pattern: new SqlCommand($"...", ...)
+      - pattern: new MySqlCommand($"...", ...)
+      - pattern: new NpgsqlCommand($"...", ...)
+
+  - id: vulnshop-sqli-efcore-raw
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-89: Entity Framework chay SQL tho voi chuoi duoc noi hoac noi suy.
+      Ban FromSqlInterpolated / ExecuteSqlInterpolated moi la ban tham so hoa;
+      ban ...Raw truyen nguyen chuoi xuong CSDL.
+    metadata:
+      cwe: "CWE-89"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+      references:
+        - https://learn.microsoft.com/ef/core/querying/sql-queries
+    pattern-either:
+      - pattern: $CTX.$T.FromSqlRaw(<... $A + $B ...>, ...)
+      - pattern: $CTX.$T.FromSqlRaw($"...", ...)
+      - pattern: $CTX.Database.ExecuteSqlRaw(<... $A + $B ...>, ...)
+      - pattern: $CTX.Database.ExecuteSqlRaw($"...", ...)
+      - pattern: $CTX.Database.ExecuteSqlRawAsync(<... $A + $B ...>, ...)
+      - pattern: $CTX.Database.ExecuteSqlRawAsync($"...", ...)
+      - pattern: $CTX.Database.SqlQueryRaw(<... $A + $B ...>, ...)
+      - pattern: $CTX.$T.SqlQuery(<... $A + $B ...>, ...)
+
+  - id: vulnshop-sqli-dapper-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-89: Dapper nhan cau lenh duoc noi chuoi. Dapper co ho tro tham so
+      (doi tuong an danh o doi so thu hai) nhung chuoi lenh van phai la hang.
+    metadata:
+      cwe: "CWE-89"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: $CONN.Query(<... $A + $B ...>, ...)
+      - pattern: $CONN.Query<$T>(<... $A + $B ...>, ...)
+      - pattern: $CONN.QueryAsync<$T>(<... $A + $B ...>, ...)
+      - pattern: $CONN.QueryFirstOrDefault<$T>(<... $A + $B ...>, ...)
+      - pattern: $CONN.QuerySingleOrDefault<$T>(<... $A + $B ...>, ...)
+      - pattern: $CONN.Execute(<... $A + $B ...>, ...)
+      - pattern: $CONN.ExecuteAsync(<... $A + $B ...>, ...)
+      - pattern: $CONN.Query<$T>($"...", ...)
+      - pattern: $CONN.QueryAsync<$T>($"...", ...)
+      - pattern: $CONN.Execute($"...", ...)
+
+  # ===========================================================================
+  # CWE-79 : Cross-Site Scripting
+  # ===========================================================================
+
   - id: vulnshop-xss-html-string-concat
     languages: [csharp]
     severity: ERROR
@@ -61,8 +207,57 @@ rules:
           metavariable: $HTML
           regex: (?i).*(html|markup|output).*
 
-  # Razor khong duoc Semgrep phan tich cu phap -> dung che do generic.
-  # Day la mot gioi han that cua SAST tren ngon ngu template, nen ghi vao bao cao.
+  - id: vulnshop-xss-response-write
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-79: Ghi thang chuoi ghep vao than phan hoi, khong qua ma hoa HTML.
+    metadata:
+      cwe: "CWE-79"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+    pattern-either:
+      - pattern: Response.Write(<... $A + $B ...>);
+      - pattern: $CTX.Response.Write(<... $A + $B ...>);
+      - pattern: Response.Write($"...");
+      - pattern: $R.WriteAsync(<... $A + $B ...>);
+      - pattern: $R.WriteAsync($"...");
+
+  - id: vulnshop-xss-htmlstring-ctor
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-79: HtmlString / MvcHtmlString danh dau chuoi la "da an toan" nen Razor
+      se KHONG ma hoa no. Dung voi chuoi ghep tu input la bo qua lop bao ve.
+    metadata:
+      cwe: "CWE-79"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+    pattern-either:
+      - pattern: new HtmlString(<... $A + $B ...>)
+      - pattern: new HtmlString($"...")
+      - pattern: new MvcHtmlString(<... $A + $B ...>)
+      - pattern: MvcHtmlString.Create(<... $A + $B ...>)
+      - pattern: new MarkupString(<... $A + $B ...>)
+      - pattern: new MarkupString($"...")
+
+  - id: vulnshop-xss-content-result-html
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-79: Action tra ve noi dung text/html duoc ghep chuoi. ContentResult
+      khong ma hoa gi ca.
+    metadata:
+      cwe: "CWE-79"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: Content(<... $A + $B ...>, "text/html")
+      - pattern: Content($"...", "text/html")
+
   - id: vulnshop-xss-html-raw-razor
     languages: [generic]
     severity: ERROR
@@ -77,3 +272,468 @@ rules:
       include:
         - "*.cshtml"
     pattern: Html.Raw(...)
+
+  - id: vulnshop-xss-markupstring-razor
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      CWE-79: Ep kieu sang MarkupString trong Blazor bo qua ma hoa HTML.
+    metadata:
+      cwe: "CWE-79"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+    paths:
+      include:
+        - "*.razor"
+    pattern: (MarkupString)
+
+  # ===========================================================================
+  # CWE-78 : OS Command Injection
+  # ===========================================================================
+
+  - id: vulnshop-cmdi-process-start-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-78: Lenh he dieu hanh duoc dung tu noi chuoi. Input nguoi dung lot vao
+      day la chay duoc lenh tuy y tren may chu.
+    metadata:
+      cwe: "CWE-78"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/78.html
+    pattern-either:
+      - pattern: Process.Start(<... $A + $B ...>)
+      - pattern: Process.Start($"...")
+      - pattern: Process.Start($F, <... $A + $B ...>)
+      - pattern: Process.Start($F, $"...")
+      - pattern: System.Diagnostics.Process.Start(<... $A + $B ...>)
+
+  - id: vulnshop-cmdi-processstartinfo-arguments
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-78: Thuoc tinh Arguments duoc gan bang chuoi ghep. Dung ArgumentList
+      thay cho Arguments thi tung doi so duoc tach rieng, khong con cho chen lenh.
+    metadata:
+      cwe: "CWE-78"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+      references:
+        - https://learn.microsoft.com/dotnet/api/system.diagnostics.processstartinfo.argumentlist
+    pattern-either:
+      - pattern: $PSI.Arguments = <... $A + $B ...>;
+      - pattern: $PSI.Arguments = $"...";
+      - pattern: $PSI.Arguments = string.Format(...);
+      - pattern: new ProcessStartInfo($F, <... $A + $B ...>)
+      - pattern: new ProcessStartInfo($F, $"...")
+
+  - id: vulnshop-cmdi-shell-execute
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-78: Goi qua shell (cmd.exe /c, /bin/sh -c, powershell -Command).
+      Shell dien giai dau cham phay, dau va, dau ong dan - nen bat ky doi so nao
+      lot input vao deu thanh lenh moi.
+    metadata:
+      cwe: "CWE-78"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $PSI.FileName = $SHELL;
+          - pattern: Process.Start($SHELL, ...)
+          - pattern: new ProcessStartInfo($SHELL, ...)
+      - metavariable-regex:
+          metavariable: $SHELL
+          regex: (?i)^"(.*[\\/])?(cmd|cmd\.exe|sh|bash|powershell|pwsh|powershell\.exe)"$
+
+  # ===========================================================================
+  # CWE-22 : Path Traversal
+  # ===========================================================================
+
+  - id: vulnshop-pathtraversal-file-api-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-22: Duong dan tep duoc dung tu noi chuoi. Chuoi "../" trong input cho
+      phep doc hoac ghi ra ngoai thu muc du dinh.
+    metadata:
+      cwe: "CWE-22"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/22.html
+    pattern-either:
+      - pattern: File.ReadAllText(<... $A + $B ...>, ...)
+      - pattern: File.ReadAllTextAsync(<... $A + $B ...>, ...)
+      - pattern: File.ReadAllBytes(<... $A + $B ...>)
+      - pattern: File.ReadAllLines(<... $A + $B ...>, ...)
+      - pattern: File.WriteAllText(<... $A + $B ...>, ...)
+      - pattern: File.WriteAllBytes(<... $A + $B ...>, ...)
+      - pattern: File.AppendAllText(<... $A + $B ...>, ...)
+      - pattern: File.Open(<... $A + $B ...>, ...)
+      - pattern: File.OpenRead(<... $A + $B ...>)
+      - pattern: File.Delete(<... $A + $B ...>)
+      - pattern: File.Copy(<... $A + $B ...>, ...)
+      - pattern: new FileStream(<... $A + $B ...>, ...)
+      - pattern: new StreamReader(<... $A + $B ...>, ...)
+      - pattern: File.ReadAllText($"...", ...)
+      - pattern: File.ReadAllTextAsync($"...", ...)
+
+  - id: vulnshop-pathtraversal-physicalfile
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-22: PhysicalFile / SendFileAsync nhan duong dan ghep chuoi, tra thang
+      tep tren dia cho nguoi dung tai ve.
+    metadata:
+      cwe: "CWE-22"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+    pattern-either:
+      - pattern: PhysicalFile(<... $A + $B ...>, ...)
+      - pattern: PhysicalFile($"...", ...)
+      - pattern: $R.SendFileAsync(<... $A + $B ...>, ...)
+      - pattern: new PhysicalFileResult(<... $A + $B ...>, ...)
+
+  - id: vulnshop-pathtraversal-path-combine-request
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-22: Path.Combine ghep truc tiep gia tri lay tu request. Path.Combine
+      KHONG lam sach duong dan - gap doi so bat dau bang dau gach cheo hoac o dia
+      thi no vut bo phan goc va tra ve duong dan tuyet doi cua ke tan cong.
+    metadata:
+      cwe: "CWE-22"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+      references:
+        - https://learn.microsoft.com/dotnet/api/system.io.path.combine
+    patterns:
+      - pattern-either:
+          - pattern: Path.Combine(..., $REQ, ...)
+          - pattern: System.IO.Path.Combine(..., $REQ, ...)
+      - metavariable-pattern:
+          metavariable: $REQ
+          patterns:
+            - pattern-either:
+                - pattern: Request.Query[...]
+                - pattern: Request.Form[...]
+                - pattern: Request.QueryString[...]
+                - pattern: Request.Params[...]
+                - pattern: Request.RouteValues[...]
+                - pattern: $CTX.Request.Query[...]
+                - pattern: $CTX.Request.Form[...]
+
+  # ===========================================================================
+  # CWE-643 : XPath Injection
+  # ===========================================================================
+
+  - id: vulnshop-xpathi-select-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-643: Bieu thuc XPath duoc dung tu noi chuoi. Ke tan cong chen
+      " or '1'='1' " de lay toan bo nut, y het SQL Injection nhung tren XML.
+    metadata:
+      cwe: "CWE-643"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/643.html
+    pattern-either:
+      - pattern: $DOC.SelectNodes(<... $A + $B ...>, ...)
+      - pattern: $DOC.SelectSingleNode(<... $A + $B ...>, ...)
+      - pattern: $DOC.SelectNodes($"...", ...)
+      - pattern: $DOC.SelectSingleNode($"...", ...)
+      - pattern: XPathExpression.Compile(<... $A + $B ...>, ...)
+      - pattern: XPathExpression.Compile($"...")
+      - pattern: $NAV.Evaluate(<... $A + $B ...>, ...)
+      - pattern: $NAV.Select(<... $A + $B ...>, ...)
+      - pattern: $EL.XPathSelectElements(<... $A + $B ...>, ...)
+      - pattern: $EL.XPathSelectElement(<... $A + $B ...>, ...)
+
+  # ===========================================================================
+  # CWE-611 : XML External Entity (XXE)
+  # ===========================================================================
+
+  - id: vulnshop-xxe-dtd-processing-parse
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-611: Cho phep xu ly DTD. Tai lieu XML gui len co the khai bao thuc the
+      ngoai tro toi tep cuc bo hoac URL noi bo - doc tep may chu hoac gay SSRF.
+      Dat DtdProcessing.Prohibit de dong han.
+    metadata:
+      cwe: "CWE-611"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+      references:
+        - https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html
+    pattern-either:
+      - pattern: $S.DtdProcessing = DtdProcessing.Parse;
+      - pattern: $S.DtdProcessing = System.Xml.DtdProcessing.Parse;
+      - pattern: $S.ProhibitDtd = false;
+
+  - id: vulnshop-xxe-xmlresolver-enabled
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-611: Gan XmlUrlResolver cho phep bo phan tich XML di lay tai nguyen
+      ben ngoai. Dat XmlResolver = null moi la cau hinh an toan.
+    metadata:
+      cwe: "CWE-611"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+    pattern-either:
+      - pattern: $S.XmlResolver = new XmlUrlResolver(...);
+      - pattern: $S.XmlResolver = new System.Xml.XmlUrlResolver(...);
+
+  - id: vulnshop-xxe-xmltextreader-default
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-611: XmlTextReader tren .NET Framework mac dinh CHO PHEP DTD. Dung
+      XmlReader.Create voi XmlReaderSettings da cau hinh thay vi lop nay.
+    metadata:
+      cwe: "CWE-611"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: new XmlTextReader(...)
+      - pattern: new System.Xml.XmlTextReader(...)
+
+  # ===========================================================================
+  # CWE-918 : Server-Side Request Forgery
+  # ===========================================================================
+
+  - id: vulnshop-ssrf-http-client-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-918: May chu goi HTTP toi dia chi dung tu noi chuoi. Ke tan cong tro
+      dia chi ve mang noi bo hoac endpoint metadata cua nha cung cap dam may.
+    metadata:
+      cwe: "CWE-918"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/918.html
+    pattern-either:
+      - pattern: $C.GetAsync(<... $A + $B ...>, ...)
+      - pattern: $C.GetAsync($"...", ...)
+      - pattern: $C.GetStringAsync(<... $A + $B ...>, ...)
+      - pattern: $C.GetStringAsync($"...", ...)
+      - pattern: $C.GetByteArrayAsync(<... $A + $B ...>, ...)
+      - pattern: $C.GetStreamAsync(<... $A + $B ...>, ...)
+      - pattern: $C.PostAsync(<... $A + $B ...>, ...)
+      - pattern: $C.PostAsync($"...", ...)
+      - pattern: $C.PutAsync(<... $A + $B ...>, ...)
+      - pattern: $C.DeleteAsync(<... $A + $B ...>, ...)
+      - pattern: new HttpRequestMessage($M, <... $A + $B ...>)
+      - pattern: new HttpRequestMessage($M, $"...")
+
+  - id: vulnshop-ssrf-webrequest-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-918: WebRequest / WebClient goi ra dia chi dung tu noi chuoi.
+    metadata:
+      cwe: "CWE-918"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: WebRequest.Create(<... $A + $B ...>)
+      - pattern: WebRequest.Create($"...")
+      - pattern: HttpWebRequest.Create(<... $A + $B ...>)
+      - pattern: $WC.DownloadString(<... $A + $B ...>)
+      - pattern: $WC.DownloadString($"...")
+      - pattern: $WC.DownloadFile(<... $A + $B ...>, ...)
+      - pattern: $WC.OpenRead(<... $A + $B ...>)
+
+  # ===========================================================================
+  # CWE-601 : Open Redirect
+  # ===========================================================================
+
+  - id: vulnshop-openredirect-from-request
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-601: Chuyen huong toi dia chi lay truc tiep tu request. Ke tan cong
+      gui link tro ve chinh trang cua ban roi day nan nhan sang trang gia mao.
+      Dung LocalRedirect hoac kiem tra Url.IsLocalUrl truoc.
+    metadata:
+      cwe: "CWE-601"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/601.html
+    patterns:
+      - pattern-either:
+          - pattern: return Redirect($U);
+          - pattern: return RedirectPermanent($U);
+          - pattern: Response.Redirect($U);
+          - pattern: $CTX.Response.Redirect($U);
+          - pattern: return new RedirectResult($U);
+      - metavariable-pattern:
+          metavariable: $U
+          patterns:
+            - pattern-either:
+                - pattern: Request.Query[...]
+                - pattern: Request.Form[...]
+                - pattern: Request.QueryString[...]
+                - pattern: Request.Params[...]
+                - pattern: $CTX.Request.Query[...]
+
+  - id: vulnshop-openredirect-parameter
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-601: Chuyen huong toi bien co ten goi y la duong dan tra ve
+      (returnUrl, redirectUrl, next...) ma khong kiem tra dia chi co noi bo khong.
+    metadata:
+      cwe: "CWE-601"
+      category: security
+      subcategory: [vuln]
+      confidence: LOW
+    patterns:
+      - pattern-either:
+          - pattern: return Redirect($U);
+          - pattern: Response.Redirect($U);
+          - pattern: return new RedirectResult($U);
+      - metavariable-regex:
+          metavariable: $U
+          regex: (?i).*(returnurl|redirecturl|redirect_uri|redirectto|nexturl|continueurl|backurl|goto).*
+
+  # ===========================================================================
+  # CWE-90 : LDAP Injection
+  # ===========================================================================
+
+  - id: vulnshop-ldapi-filter-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-90: Bo loc LDAP duoc dung tu noi chuoi. Ky tu ) ( * | & trong input
+      lam doi hoan toan y nghia cua bo loc.
+    metadata:
+      cwe: "CWE-90"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/90.html
+    pattern-either:
+      - pattern: $S.Filter = <... $A + $B ...>;
+      - pattern: $S.Filter = $"...";
+      - pattern: new DirectorySearcher(<... $A + $B ...>, ...)
+      - pattern: new DirectorySearcher($"...", ...)
+      - pattern: new DirectoryEntry(<... $A + $B ...>, ...)
+      - pattern: new SearchRequest(<... $A + $B ...>, ...)
+
+  # ===========================================================================
+  # CWE-91 : XML / XSLT Injection
+  # ===========================================================================
+
+  - id: vulnshop-xmli-innerxml-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-91: Noi dung XML duoc dung tu noi chuoi. Input chua the dong/mo the se
+      lam sai cau truc tai lieu va them nut ma ung dung khong du dinh.
+    metadata:
+      cwe: "CWE-91"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/91.html
+    pattern-either:
+      - pattern: $DOC.InnerXml = <... $A + $B ...>;
+      - pattern: $DOC.InnerXml = $"...";
+      - pattern: $DOC.LoadXml(<... $A + $B ...>);
+      - pattern: $DOC.LoadXml($"...");
+      - pattern: XElement.Parse(<... $A + $B ...>, ...)
+      - pattern: XDocument.Parse(<... $A + $B ...>, ...)
+
+  - id: vulnshop-xslti-enable-script
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-91: XsltSettings bat EnableScript hoac EnableDocumentFunction. XSLT la
+      ngon ngu chay duoc - bat hai co nay bien bang chuyen doi thanh ma thuc thi.
+    metadata:
+      cwe: "CWE-91"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+    pattern-either:
+      - pattern: $X.EnableScript = true;
+      - pattern: $X.EnableDocumentFunction = true;
+      - pattern: new XsltSettings(true, true)
+      - pattern: XsltSettings.TrustedXslt
+
+  # ===========================================================================
+  # CWE-113 : HTTP Response Splitting
+  # ===========================================================================
+
+  - id: vulnshop-responsesplit-header-concat
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-113: Gia tri header duoc dung tu noi chuoi. Ky tu xuong dong trong
+      input cho phep chen them header hoac ca mot phan hoi thu hai.
+    metadata:
+      cwe: "CWE-113"
+      category: security
+      subcategory: [vuln]
+      confidence: MEDIUM
+      references:
+        - https://cwe.mitre.org/data/definitions/113.html
+    pattern-either:
+      - pattern: Response.Headers.Add($N, <... $A + $B ...>);
+      - pattern: $CTX.Response.Headers.Add($N, <... $A + $B ...>);
+      - pattern: Response.Headers[$N] = <... $A + $B ...>;
+      - pattern: $CTX.Response.Headers[$N] = <... $A + $B ...>;
+      - pattern: Response.AddHeader($N, <... $A + $B ...>);
+      - pattern: Response.AppendHeader($N, <... $A + $B ...>);
+      - pattern: Response.Headers.Append($N, <... $A + $B ...>);
+
+  # ===========================================================================
+  # CWE-94 : Server-Side Code Injection
+  # ===========================================================================
+
+  - id: vulnshop-codei-dynamic-compile
+    languages: [csharp]
+    severity: ERROR
+    message: >-
+      CWE-94: Bien dich hoac chay ma nguon lay tu bien luc chay. Neu chuoi do
+      co phan nao den tu nguoi dung thi day la chay ma tuy y tren may chu.
+    metadata:
+      cwe: "CWE-94"
+      category: security
+      subcategory: [vuln]
+      confidence: HIGH
+      references:
+        - https://cwe.mitre.org/data/definitions/94.html
+    pattern-either:
+      - pattern: CSharpScript.EvaluateAsync(...)
+      - pattern: CSharpScript.RunAsync(...)
+      - pattern: CSharpScript.Create(...)
+      - pattern: $P.CompileAssemblyFromSource(...)
+      - pattern: Assembly.Load($BYTES)

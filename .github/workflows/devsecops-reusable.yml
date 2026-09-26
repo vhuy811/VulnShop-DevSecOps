@@ -76,6 +76,26 @@ on:
         type: boolean
         required: false
         default: true
+      semgrep-packs:
+        description: >-
+          Cac bo rule cong dong chay KEM rule cua do an, cach nhau bang dau
+          cach. Chung duoc tai tu registry cua Semgrep luc chay nen luon la
+          ban moi nhat. De trong thi chi dung rule tu viet - nhanh hon nhung
+          bo sot moi lop CWE ngoai SQLi va XSS.
+        type: string
+        required: false
+        default: 'p/csharp p/security-audit'
+      fail-on-unverified:
+        description: >-
+          true thi cong cung that bai khi co canh bao tinh nam tren mot endpoint
+          kiem thu duoc nhung khong lan nao duoc hoi ZAP. Khong co dieu kien nay
+          thi dat run-dast: false se TAT HAN cong: khong chay DAST thi khong co
+          nhan CONFIRMED, khong co CONFIRMED thi job xanh, va "khong kiem tra
+          duoc" di qua y het "da kiem tra va sach" - dung cai loi ca quy trinh
+          nay dat ra de chong.
+        type: boolean
+        required: false
+        default: true
       run-image-scan:
         description: 'Quet CVE trong container image. Ton them vai phut nen mac dinh chi chay o nhanh chinh.'
         type: boolean
@@ -114,8 +134,9 @@ jobs:
         run: |
           EV="${{ github.event_name }}"
           if [ "$EV" = "schedule" ] || [ "$EV" = "workflow_dispatch" ]; then
-            echo "Quet dinh ky hoac chay tay: quet day du."
+            echo "Quet dinh ky hoac chay tay: quet day du, khong co moc baseline."
             echo "chi_tai_lieu=false" >> "$GITHUB_OUTPUT"
+            echo "moc=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -127,11 +148,15 @@ jobs:
 
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
              || ! git rev-parse --verify --quiet "$BASE^{commit}" > /dev/null; then
-            echo "Khong co moc de so sanh (nhanh vua tao): quet day du."
+            echo "Khong co moc de so sanh (nhanh vua tao): quet day du, khong co baseline."
             echo "chi_tai_lieu=false" >> "$GITHUB_OUTPUT"
+            echo "moc=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          # Moc nay dung cho HAI viec: xac dinh commit chi sua tai lieu (o day)
+          # va tinh baseline cho cong chan (buoc Semgrep baseline phia duoi).
+          echo "moc=$BASE" >> "$GITHUB_OUTPUT"
           CHANGED=$(git diff --name-only "$BASE" HEAD)
           echo "Tep thay doi so voi $BASE:"
           echo "$CHANGED" | sed 's/^/    /'
@@ -224,9 +249,15 @@ jobs:
       - name: Semgrep - bo rule phat hien
         if: steps.pham_vi.outputs.chi_tai_lieu != 'true'
         run: |
+          CFG="--config $TOOLKIT/semgrep-rules/sast-detect.yaml"
+          for pack in ${{ inputs.semgrep-packs }}; do
+            CFG="$CFG --config $pack"
+          done
+          echo "Bo rule dang dung: $CFG"
           docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep \
-            semgrep scan --config "$TOOLKIT/semgrep-rules/sast-detect.yaml" \
+            semgrep scan $CFG \
             --exclude "$TOOLKIT" \
+            --exclude "kiem-thu-rule" \
             --sarif --output reports/semgrep.sarif --metrics=off
 
       - name: Semgrep - bo rule kiem sanitizer
@@ -235,7 +266,53 @@ jobs:
           docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep \
             semgrep scan --config "$TOOLKIT/semgrep-rules/sanitizer-check.yaml" \
             --exclude "$TOOLKIT" \
+            --exclude "kiem-thu-rule" \
             --sarif --output reports/sanitizers.sarif --metrics=off
+
+      # ===============================================================
+      # BASELINE - canh bao nao la MOI so voi nhanh goc?
+      #
+      # Ly do so mot khien cac doi tat cong sau mot tuan: repo co san lo hong
+      # tu truoc, moi PR deu do vi loi cua nguoi khac, va cach duy nhat de lam
+      # viec tiep la tat han cong. Buoc nay chay Semgrep lan nua voi
+      # --baseline-commit: ket qua CHI gom canh bao khong ton tai o moc.
+      #
+      # QUAN TRONG: lan quet day du o tren VAN duoc dung de bao cao. Tep nay
+      # chi di vao cong chan. Dung baseline ngay tu lan quet chinh thi no cu
+      # bien mat khoi bao cao - lai la im lang bi trinh bay thanh sach.
+      #
+      # Hong thi khong lam sap job: correlate.py khong thay tep nay se coi
+      # MOI canh bao la moi - tuc la chat hon, khong long hon.
+      # ===============================================================
+      - name: Semgrep - chi canh bao MOI so voi moc (baseline cho cong chan)
+        if: steps.pham_vi.outputs.chi_tai_lieu != 'true' && steps.pham_vi.outputs.moc != ''
+        env:
+          MOC: ${{ steps.pham_vi.outputs.moc }}
+        run: |
+          CFG="--config $TOOLKIT/semgrep-rules/sast-detect.yaml"
+          for pack in ${{ inputs.semgrep-packs }}; do
+            CFG="$CFG --config $pack"
+          done
+          echo "Moc baseline: $MOC"
+          # Ba bien GIT_CONFIG_* khai bao safe.directory cho git ben trong
+          # container ma khong phai sua tep cau hinh nao: repo duoc mount vao
+          # /src thuoc user khac, git tu choi doc neu khong co dong nay.
+          if docker run --rm -v "$PWD:/src" -w /src \
+               -e GIT_CONFIG_COUNT=1 \
+               -e GIT_CONFIG_KEY_0=safe.directory \
+               -e GIT_CONFIG_VALUE_0=/src \
+               semgrep/semgrep semgrep scan $CFG \
+               --exclude "$TOOLKIT" --exclude "kiem-thu-rule" \
+               --baseline-commit "$MOC" \
+               --sarif --output reports/semgrep-moi.sarif --metrics=off; then
+            N=$(python -c "import json;print(sum(len(r.get('results',[])) for r in json.load(open('reports/semgrep-moi.sarif')).get('runs',[])))")
+            echo "Baseline: $N canh bao MOI so voi moc. Cong se chi chan phan nay."
+          else
+            rm -f reports/semgrep-moi.sarif
+            echo "::warning::Khong tinh duoc baseline. Cong se coi MOI canh bao la moi."
+            echo "Trang thai cay lam viec (Semgrep tu choi baseline khi co tep dang theo doi bi sua):"
+            git status --porcelain | head -20
+          fi
 
       # ===============================================================
       # TANG 3 - Ha tang: cau hinh trien khai + SBOM
@@ -344,14 +421,55 @@ jobs:
         if: steps.pham_vi.outputs.chi_tai_lieu != 'true' && inputs.run-dast && inputs.project-file != ''
         id: correlate
         run: |
+          # Dung if thay vi `[ ... ] && ...`: shell cua Actions chay voi -e, nen
+          # mot phep thu tra ve false o cuoi dong se lam sap ca buoc.
+          ARGS=""
+          if [ "${{ inputs.fail-on-confirmed }}" = "true" ]; then
+            ARGS="$ARGS --fail-on-confirmed"
+          fi
+          if [ "${{ inputs.fail-on-unverified }}" = "true" ]; then
+            ARGS="$ARGS --fail-on-unverified"
+          fi
           python "$TOOLKIT/tools/correlate.py" \
             --findings reports/semgrep.sarif \
             --sanitizers reports/sanitizers.sarif \
+            --baseline-sarif reports/semgrep-moi.sarif \
             --routes routes_map.json \
             --zap http://localhost:8090 \
             --base-url "${{ inputs.app-url }}" \
-            --scan-timeout 300 \
-            ${{ inputs.fail-on-confirmed && '--fail-on-confirmed' || '' }}
+            --scan-timeout 300 $ARGS
+
+      # ===============================================================
+      # Khi tang dong BI TAT, cong van phai co tieng noi.
+      #
+      # Neu khong co buoc nay, `run-dast: false` tat han cong: khong chay DAST
+      # thi khong sinh nhan CONFIRMED, khong CONFIRMED thi job xanh, va merge
+      # duoc tat. Tuc la mot dong cau hinh bien "khong kiem tra duoc" thanh
+      # "da kiem tra va sach".
+      #
+      # Buoc nay chay correlate o che do --dry-run: van anh xa canh bao tinh
+      # sang endpoint, van ap nhan FILTERED tu bang chung khu doc, chi khong
+      # goi ZAP. Phan con lai la rui ro DA BIET ma CHUA AI KIEM CHUNG.
+      # ===============================================================
+      - name: Kiem tra rui ro chua kiem chung (khi tang dong bi tat)
+        if: >-
+          steps.pham_vi.outputs.chi_tai_lieu != 'true' &&
+          !inputs.run-dast &&
+          inputs.fail-on-unverified
+        run: |
+          if [ ! -f reports/semgrep.sarif ] || [ ! -f routes_map.json ]; then
+            echo "Thieu ket qua tinh hoac ban do route - khong doi sanh duoc."
+            exit 0
+          fi
+          python "$TOOLKIT/tools/correlate.py" --dry-run \
+            --findings reports/semgrep.sarif \
+            --sanitizers reports/sanitizers.sarif \
+            --baseline-sarif reports/semgrep-moi.sarif \
+            --routes routes_map.json \
+            --base-url "${{ inputs.app-url }}" \
+            --out reports/findings.json \
+            --sarif-out reports/correlated.sarif \
+            --fail-on-unverified
 
       # ===============================================================
       # BAO CAO - chay ca khi quality gate da that bai, vi luc that bai
@@ -424,16 +542,41 @@ jobs:
               print(f"| 4. Doi sanh | **CONFIRMED {s.get('CONFIRMED',0)}** · "
                     f"FILTERED {s.get('FILTERED',0)} · UNCONFIRMED {s.get('UNCONFIRMED',0)} |")
               print()
-              if s.get("CONFIRMED"):
+
+              co_bl = f.get("baseline_used", False)
+              n_moi = f.get("confirmed_new", s.get("CONFIRMED", 0))
+              n_cu = f.get("confirmed_old", 0)
+
+              if co_bl:
+                  print(f"> Baseline so voi nhanh goc: **{n_moi} CONFIRMED moi** do lan thay "
+                        f"doi nay dua vao, {n_cu} CONFIRMED la no cu tu truoc. "
+                        f"Cong chi chan phan moi.\n")
+              else:
+                  print("> Khong co moc baseline (quet dinh ky, chay tay, hoac nhanh vua "
+                        "tao) — moi canh bao deu tinh la moi.\n")
+
+              if n_moi:
                   print("> **Cong da chan.** Cac canh bao duoi day da duoc xac nhan la "
                         "khai thac duoc tren ung dung dang chay:\n")
                   for x in f["results"]:
-                      if x["label"] == "CONFIRMED":
+                      if x["label"] == "CONFIRMED" and x.get("moi", True):
                           print(f"> - `{x['file']}:{x['line']}` — {x['cwe']} tai `{x.get('url','')}`")
+              elif n_cu:
+                  print("> Lan thay doi nay **khong them lo hong moi** nao — cong cho qua. "
+                        f"Nhung **{n_cu} lo hong CONFIRMED cu van con do**; day la no ky "
+                        "thuat da biet, khong phai bang chung an toan:\n")
+                  for x in f["results"]:
+                      if x["label"] == "CONFIRMED":
+                          print(f"> - `{x['file']}:{x['line']}` — {x['cwe']} tai `{x.get('url','')}` *(no cu)*")
               else:
                   print("> Khong co canh bao nao duoc xac nhan khai thac duoc. "
                         "Luu y: **UNCONFIRMED khong dong nghia voi an toan** — "
                         "do la phan chua co bang chung theo chieu nao.")
+
+              n_ngoai = f.get("outside_dast_scope", 0)
+              if n_ngoai:
+                  print(f"\n> {n_ngoai} canh bao thuoc CWE ma ZAP **khong co active scan rule** "
+                        "— khong kiem chung dong duoc, khong tinh vao cong, can review tay.")
           PY
 
       - name: Day SARIF da gan nhan len Code Scanning

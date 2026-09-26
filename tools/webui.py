@@ -283,24 +283,38 @@ def run_scan(job_id: str, repo: str, title: str, use_sast: bool,
             else:
                 rules_dir, nguon = None, "bộ rule cộng đồng p/csharp"
 
-            def semgrep(config: str, out_name: str) -> subprocess.CompletedProcess:
+            # Bo rule cong dong chay KEM rule cua do an, khong thay the.
+            # Rule tu viet giu hai vai tro khong bo duoc: ghi ma CWE thang vao
+            # thong diep, va - quan trong hon - bo sanitizer-check la thu duy
+            # nhat tim BANG CHUNG AN TOAN. Khong bo cong dong nao lam viec do;
+            # chung chi tim cai xau. Bo di thi nhan FILTERED bien mat.
+            PACK_CONG_DONG = ["p/csharp", "p/security-audit"]
+
+            def semgrep(configs: list[str], out_name: str,
+                        timeout: int = 1800) -> subprocess.CompletedProcess:
                 cmd = ["docker", "run", "--rm",
                        "-v", f"{repo_path}:/src:ro", "-v", f"{REPORTS}:/out"]
                 if rules_dir is not None:
                     cmd += ["-v", f"{rules_dir}:/rules:ro"]
-                cmd += ["-w", "/src", "semgrep/semgrep", "semgrep", "scan",
-                        f"--config={config}", ".", "--exclude", "semgrep-rules",
+                cmd += ["-w", "/src", "semgrep/semgrep", "semgrep", "scan"]
+                for c in configs:
+                    cmd += [f"--config={c}"]
+                cmd += [".", "--exclude", "semgrep-rules",
                         "--sarif", "--output", f"/out/{out_name}", "--metrics=off"]
                 return subprocess.run(cmd, capture_output=True, text=True,
-                                      encoding="utf-8", errors="replace", timeout=1800)
+                                      encoding="utf-8", errors="replace", timeout=timeout)
 
             if rules_dir is not None:
-                r = semgrep("/rules/sast-detect.yaml", f_sast.name)
-                # Bo sanitizer chay cung luc - khong co no thi khong co FILTERED
+                # Rule cua do an + rule cong dong, gop vao MOT lan quet.
+                r = semgrep(["/rules/sast-detect.yaml"] + PACK_CONG_DONG,
+                            f_sast.name, timeout=2700)
+                # Bo sanitizer quet RIENG, chi bang rule cua do an: no tra loi
+                # cau hoi nguoc lai (co bang chung an toan khong), tron chung
+                # vao se lam ban ket qua phat hien.
                 if (rules_dir / "sanitizer-check.yaml").is_file():
-                    semgrep("/rules/sanitizer-check.yaml", f_san.name)
+                    semgrep(["/rules/sanitizer-check.yaml"], f_san.name)
             else:
-                r = semgrep("p/csharp", f_sast.name)
+                r = semgrep(PACK_CONG_DONG, f_sast.name, timeout=2700)
 
             if f_sast.exists():
                 n = sum(len(run.get("results", [])) for run in
