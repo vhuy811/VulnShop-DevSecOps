@@ -53,7 +53,7 @@ git push -u origin tinh-nang/ten-viec-ban-lam
 
 Git sẽ in ra một đường link dạng `https://github.com/vhuy811/<repo>/pull/new/...` — mở link đó trong trình duyệt, bấm **Create pull request**.
 
-Từ đây bạn không làm gì nữa. Pipeline tự chạy.
+**Mở PR là lúc pipeline chạy.** Push lên nhánh của bạn không tự quét — nên đừng chờ, mở PR ngay (chọn *Draft* nếu chưa xong). Từ đây bạn không làm gì nữa.
 
 ---
 

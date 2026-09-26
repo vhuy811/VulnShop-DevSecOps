@@ -54,7 +54,7 @@ Tầng 3 không phải bước trung gian. Nó **đo và công bố giới hạn
 | Cổng | Kích hoạt | Ai bấm | Chặn gì |
 |---|---|---|---|
 | Hook pre-commit | `git commit` | tự động | commit không thành |
-| CI trên mọi nhánh | `git push` | tự động | job đỏ |
+| CI trên GitHub | mở PR, push vào `main` | tự động | job đỏ, Merge khoá |
 | Branch protection | mở pull request | tự động | nút Merge xám |
 | Quét định kỳ | 01:00 thứ Ba | tự động | CVE mới trên mã nguồn cũ |
 
@@ -237,6 +237,8 @@ Những điều dưới đây được đo và công bố, không phải giấu 
 **Tầng 5 chỉ chạy với ứng dụng tự chứa.** App cần SQL Server, Redis hay dịch vụ ngoài thì phải thêm service container vào CI, hoặc đặt `run-dast: false` và chấp nhận bốn tầng tĩnh.
 
 **Tầng 5 chỉ phủ endpoint có tham số GET kiểu đơn giản.** Đo trên hai bộ dữ liệu: 43% với ứng dụng mẫu, 9% với eShopOnWeb của Microsoft. Chênh lệch đó là ranh giới áp dụng thật.
+
+**DAST chỉ kết luận được khi giá trị mồi sinh ra dữ liệu.** ZAP so sánh phản hồi giữa các payload; mồi trả về trang trống thì mọi payload đều trống như nhau và ZAP im lặng. Đã có một SQL injection thật đi qua cổng vì thế — mồi `a` cho `WHERE Category = 'a'`. Hai phản ứng: pipeline giờ so phản hồi của mồi với một giá trị vô nghĩa, giống nhau thì ghi *"không kết luận được"* và **không** tính là đã kiểm chứng (fail-closed); và `devsecops-seeds.json` ở gốc repo cho phép chỉ mồi thật cho từng endpoint. Không tệp đó thì DAST vẫn mù ở những endpoint so bằng — đây là giới hạn của kiểm thử hộp đen, không phải của công cụ này.
 
 **Semgrep không phân tích cú pháp Razor.** Rule cho `.cshtml` chạy ở chế độ generic — khớp văn bản thuần — nên `Html.Raw` trong một dòng chú thích cũng bị báo.
 

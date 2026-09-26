@@ -11,7 +11,7 @@ Quy trình DevSecOps năm tầng — dùng hằng ngày, cài lên máy mới, v
 | Chốt | Chạy khi nào | Ai kích hoạt | Mất bao lâu | Chặn gì |
 |---|---|---|---|---|
 | **Hook pre-commit** | `git commit` | tự động | 5–20 giây | commit không thành |
-| **CI trên GitHub** | `git push`, mở PR | tự động | 20 giây – 3 phút | job đỏ, nút Merge xám |
+| **CI trên GitHub** | mở PR, push vào `main` | tự động | 20 giây – 6 phút | job đỏ, nút Merge xám |
 | **Dashboard** | khi bạn muốn nhìn toàn cảnh | **bạn bấm** | 1–4 phút | không chặn gì |
 
 Dashboard không nằm trong luồng làm việc hằng ngày. Nó để điều tra, để so sánh hai repo, và để trình diễn. Hook và CI mới là thứ gác cổng.
@@ -36,10 +36,12 @@ Lệnh thứ ba cài hook vào **repo bạn đang đứng**, trỏ ngược về
 # sửa code như bình thường
 git add .
 git commit -m "..."      # <- hook tự quét các tệp đang commit
-git push                 # <- CI tự chạy đủ năm tầng
+git push                 # <- lên nhánh của bạn, chưa quét
 ```
 
-Chỉ vậy. Không mở dashboard, không chạy lệnh quét nào.
+Rồi mở Pull Request (link git in ra sau khi push). **Mở PR là lúc CI chạy đủ năm tầng.** Push lên nhánh phụ không tự quét — cố ý: mỗi PR chỉ có một check, so với một mốc là `main`. Muốn quét sớm thì mở PR dạng draft.
+
+Không mở dashboard, không chạy lệnh quét nào.
 
 Hook in ra một trong ba kết quả:
 
@@ -183,6 +185,25 @@ Chỉ vậy. Không copy `tools/`, không copy `semgrep-rules/` — pipeline t�
 
 `run-dast: false` là tham số hay cần nhất. Không có nó, repo cần CSDL sẽ đỏ ở bước khởi động app — đỏ vì thiếu SQL Server, không phải vì tìm ra lỗ hổng. Sai hoàn toàn về ý nghĩa.
 
+### Bước 2b — Giá trị mồi cho DAST: `devsecops-seeds.json`
+
+ZAP kết luận SQL injection bằng cách **so sánh phản hồi** giữa các payload. Nếu yêu cầu gốc đã trả về trang trống, thì `' AND 1=1` và `' AND 1=2` đều trống như nhau — không có gì để so, và ZAP báo "không thấy gì" dù lỗ hổng có thật.
+
+Pipeline tự đoán giá trị mồi theo **kiểu** tham số: số → `1`, chuỗi → `a`. Với `WHERE Name LIKE '%a%'` thế là đủ. Với `WHERE Category = 'a'` thì không — không danh mục nào tên `a`.
+
+Khi tự đoán không ra, chỉ cho nó bằng một tệp ở gốc repo:
+
+```json
+{
+  "/Product/Filter": "Phu kien",
+  "/Product/Detail": "3"
+}
+```
+
+Khoá là đường dẫn endpoint, giá trị là mồi cho tham số đầu tiên. Tệp không bắt buộc; thiếu thì pipeline vẫn tự đoán.
+
+Và khi mồi vô dụng mà không ai chỉ, pipeline **không** tin ZAP: nó so phản hồi của giá trị mồi với một giá trị vô nghĩa, giống nhau thì ghi *"ZAP không kết luận được: mốc so sánh rỗng"* và **không tính là đã kiểm chứng** — cổng `fail-on-unverified` chặn. Một lỗi SQL injection thật đã từng đi qua cổng trước khi có kiểm tra này.
+
 ### Bước 3 — Push và xem
 
 Vào tab **Actions** của repo. Job sẽ chạy.
@@ -290,4 +311,5 @@ Lưu ý khi chọn action cho bước 2: phải là action có **tham số GET**
 - Cảnh báo thuộc CWE **ngoài bảng ánh xạ** (deserialization, IDOR, mã hoá yếu…) hiện trong báo cáo ở mục riêng và **không tính vào cổng chặn** — không có công cụ nào kiểm chứng chúng được.
 - Tầng 5 chỉ chạy với **ứng dụng tự chứa** — app cần SQL Server, Redis hay dịch vụ ngoài thì phải thêm service container vào CI.
 - Tầng 5 chỉ phủ được endpoint có **tham số GET kiểu đơn giản**. VulnShop phủ 43%, eShopOnWeb phủ 9%. Tầng 3 đo và công bố con số này thay vì giấu.
+- **DAST cần giá trị mồi sinh ra dữ liệu.** Mồi tự đoán theo kiểu tham số không biết gì về dữ liệu thật; với phép so bằng (`Category = ...`) nó trả về trang trống và ZAP mất mốc so sánh. Pipeline phát hiện mốc rỗng và không tính là đã kiểm chứng; muốn ZAP kiểm chứng được thì khai mồi thật trong `devsecops-seeds.json` (mục 5, bước 2b).
 - **UNCONFIRMED không phải kết luận an toàn.** Nó là phần chưa có bằng chứng theo chiều nào.

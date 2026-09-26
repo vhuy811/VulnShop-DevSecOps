@@ -353,6 +353,33 @@ def main() -> None:
     for f in page_files:
         routes.extend(scan_razor_page(f, root))
 
+    # ---- Gia tri moi viet tay: devsecops-seeds.json o goc repo dich ---------
+    #
+    # guess_seed() chon gia tri theo KIEU tham so, khong biet gi ve du lieu that.
+    # Voi `WHERE Name LIKE '%a%'` thi 'a' du dung; voi `WHERE Category = 'a'`
+    # thi 'a' tra ve 0 dong, va DAST mat moc so sanh - mot SQL injection that da
+    # di qua cong vi the. Tep nay la cho nguoi hieu ung dung chi cho DAST gia tri
+    # co that. Dinh dang:
+    #     { "/Product/Filter": "Phu kien", "/Product/Detail": "3" }
+    # Khoa la url_path, gia tri la moi cho THAM SO DAU TIEN cua endpoint do.
+    seeds_file = root / "devsecops-seeds.json"
+    if seeds_file.is_file():
+        try:
+            seeds = json.loads(seeds_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"{seeds_file} khong phai JSON hop le: {exc}")
+        ap_dung = 0
+        for r in routes:
+            v = seeds.get(r["url_path"])
+            if v is not None:
+                r["test_seed"] = str(v)
+                r["seed_tu_tep"] = True
+                ap_dung += 1
+        print(f"Doc {seeds_file.name}: {ap_dung}/{len(seeds)} moi viet tay khop endpoint.")
+        thua = sorted(set(seeds) - {r["url_path"] for r in routes})
+        if thua:
+            print(f"  (!) {len(thua)} khoa khong khop endpoint nao: {', '.join(thua)}")
+
     tally = Counter(r["status"] for r in routes)
     by_kind = Counter(r["kind"] for r in routes)
     testable = [r for r in routes if r["status"] == "testable"]

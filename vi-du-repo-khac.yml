@@ -19,9 +19,13 @@ name: Bao mat
 # NOI RO la da bo qua, chu khong im lang.
 # ==========================================================================
 
+# Chi quet khi MO PR va khi push vao main. Khong quet moi push len nhanh phu:
+# quet ca hai thi mot commit tren PR co HAI check cung ten, so voi hai moc khac
+# nhau, va ruleset chon cai nao la may rui. Mot PR - mot check - mot moc.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: '0 18 * * 1'

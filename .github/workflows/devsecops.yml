@@ -18,8 +18,9 @@ name: DevSecOps - nam tang kiem thu
 # ==========================================================================
 
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]   # nhanh phu: mo PR la duoc quet - mot PR, mot check, mot moc
   workflow_dispatch:
   # Quet dinh ky. Ba kich hoat tren deu bat nguon tu MOT THAY DOI MA NGUON,
   # nen chung mu hoan toan voi mot loai rui ro: ma nguon dung yen nhung the

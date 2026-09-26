@@ -390,12 +390,83 @@ class Zap:
         return res.get("alerts", [])
 
 
+GIA_TRI_VO_NGHIA = "zqx9khongtontai7v"
+
+
+def _rut_gon(body: str, *bo: str) -> str:
+    """Rut phan hoi ve phan NOI DUNG de so sanh duoc.
+
+    - Bo the HTML: layout, script, CSS giong nhau o moi trang va lam lech ty le.
+    - Bo chinh gia tri tham so bi in lai ("Ban vua tim: a") - nhung chi khi no
+      dung rieng nhu mot tu. Mot moi mot ky tu nhu 'a' ma xoa tran lan thi mat
+      luon chu 'a' trong "Ban vua loc", va hai trang thanh khac nhau gia tao.
+    - Bo khoang trang, ha chu thuong.
+    """
+    body = re.sub(r"<[^>]+>", " ", body)
+    for b in bo:
+        if b:
+            body = re.sub(r"(?<!\w)" + re.escape(b) + r"(?!\w)", " ", body, flags=re.I)
+    return re.sub(r"\s+", " ", body).strip().lower()
+
+
+def _giong_nhau(a: str, b: str) -> bool:
+    """Hai noi dung coi la 'giong nhau' neu bang nhau hoac chi lech vai phan tram
+    (timestamp, token chong CSRF...). Nguong 0.98 do bang tay tren trang ket qua
+    cua ung dung mau: them mot dong du lieu la ty le tut xuong duoi 0.9."""
+    if a == b:
+        return True
+    import difflib
+    return difflib.SequenceMatcher(None, a, b, autojunk=False).ratio() >= 0.98
+
+
+def moc_so_sanh_co_nghia(base_url: str, route: dict, param: str, seed: str) -> bool | None:
+    """
+    Gia tri moi co lam ung dung tra ve du lieu KHAC voi mot gia tri vo nghia khong?
+
+    Vi sao can: ZAP ket luan SQLi (va nhieu loai khac) bang cach SO SANH phan
+    hoi giua cac payload. Neu yeu cau goc voi gia tri moi da tra ve trang rong,
+    thi `a' AND '1'='1` va `a' AND '1'='2` deu rong nhu nhau - khong co gi de
+    so, va ZAP bao "khong thay gi". Do KHONG phai la cau tra loi "khong co lo
+    hong"; do la mot cau hoi vo nghia. Truoc khi co ham nay, hai chuyen do bi
+    ghi nhan giong het nhau, va mot SQL injection that da di qua cong.
+
+    Tra ve True (co nghia), False (moc rong), None (khong kiem tra duoc).
+    """
+    if requests is None:
+        return None
+    try:
+        u_moi = f"{base_url}{route['url_path']}?{urlencode({param: seed})}"
+        u_vn = f"{base_url}{route['url_path']}?{urlencode({param: GIA_TRI_VO_NGHIA})}"
+        r1 = requests.get(u_moi, timeout=15)
+        r2 = requests.get(u_vn, timeout=15)
+    except Exception:
+        return None
+    if r1.status_code != r2.status_code:
+        return True
+    return not _giong_nhau(_rut_gon(r1.text, seed), _rut_gon(r2.text, GIA_TRI_VO_NGHIA))
+
+
 def confirm_with_zap(zap: Zap, base_url: str, route: dict, param: str, cwe: str,
-                     min_confidence: str) -> tuple[bool, str]:
-    """Ban payload vao dung (URL, tham so) va doc alert tra ve."""
+                     min_confidence: str) -> tuple[bool | None, str]:
+    """
+    Ban payload vao dung (URL, tham so) va doc alert tra ve.
+
+    Tra ve (ket_qua, chi_tiet) voi ket_qua co BA gia tri:
+      True   ZAP khai thac duoc                    -> CONFIRMED
+      False  ZAP da thu that su va khong khai thac duoc -> UNCONFIRMED, da hoi
+      None   ZAP khong ket luan duoc vi moc so sanh rong -> UNCONFIRMED, CHUA hoi
+    Phan biet False va None la ca van de: None khong duoc tinh la "da kiem tra".
+    """
     cwe_num = cwe.split("-")[-1]
     seed = seed_for(route, param)
     target = f"{base_url}{route['url_path']}?{urlencode({param: seed})}"
+
+    # Kiem tra moc TRUOC khi quet, de con in ra cho nguoi doc log biet.
+    moc = moc_so_sanh_co_nghia(base_url, route, param, seed)
+    if moc is False:
+        print(f"    (!) Moi '{seed}' cho {param} tra ve trang giong het gia tri vo nghia "
+              f"- ZAP se khong co gi de so sanh. Van quet, nhung ket qua 'khong' "
+              f"se KHONG duoc tinh la da kiem chung.", flush=True)
 
     started = time.time()
     print(f"    -> accessUrl {target}", flush=True)
@@ -403,7 +474,7 @@ def confirm_with_zap(zap: Zap, base_url: str, route: dict, param: str, cwe: str,
 
     scan_id = zap.active_scan(target)
     if not scan_id:
-        return False, "ZAP khong khoi tao duoc scan"
+        return None, "ZAP khong khoi tao duoc scan"
 
     print(f"    -> active scan id={scan_id}, dang quet", end="", flush=True)
     zap.wait(scan_id, progress=True)
@@ -418,6 +489,10 @@ def confirm_with_zap(zap: Zap, base_url: str, route: dict, param: str, cwe: str,
         if CONFIDENCE_RANK.get(str(a.get("confidence", "")).lower(), 0) < floor:
             continue
         return True, f"{a.get('alert')} (confidence={a.get('confidence')})"
+
+    if moc is False:
+        return None, (f"ZAP khong ket luan duoc: gia tri moi '{seed}' khong sinh du lieu, "
+                      f"khong co moc de so sanh. Them gia tri that vao devsecops-seeds.json")
     return False, "ZAP khong khai thac duoc trong pham vi policy hien tai"
 
 
@@ -620,7 +695,7 @@ def main() -> int:
         # ZAP khong he co rule tuong ung - se lam do cong vinh vien, va khong
         # co cach nao sua ngoai viec tat cong di.
         row = dict(f, label=UNCONFIRMED, url=None, param=None, evidence="",
-                   da_hoi_zap=False,
+                   da_hoi_zap=False, moc_rong=False,
                    co_scanner=f["cwe"] in CWE_ZAP_SCANNER)
 
         route = find_route(f["file"], f["line"], routes)
@@ -670,8 +745,13 @@ def main() -> int:
                 )
                 row["label"] = CONFIRMED if ok else UNCONFIRMED
                 row["evidence"] = detail
-                row["da_hoi_zap"] = True   # ZAP tra loi that, du la tra loi "khong"
-                print(f"    => {row['label']}: {detail}", flush=True)
+                # True/False: ZAP da tra loi that, du la tra loi "khong".
+                # None: ZAP bi hoi mot cau vo nghia (moc rong) - KHONG tinh la da
+                # hoi, de cong fail-on-unverified con chan duoc.
+                row["da_hoi_zap"] = ok is not None
+                row["moc_rong"] = ok is None
+                nhan_in = row["label"] + ("  (chua kiem chung duoc)" if ok is None else "")
+                print(f"    => {nhan_in}: {detail}", flush=True)
             except Exception as exc:  # loi ha tang khong duoc bien thanh "an toan"
                 row["evidence"] = f"Loi khi goi ZAP: {exc}"
                 print(f"    => LOI: {exc}", flush=True)
