@@ -77,8 +77,8 @@ Dòng thứ ba quan trọng. Nó **không** nói mã nguồn sạch, nó nói ch
 ### Các bước
 
 ```bash
-git clone https://github.com/vhuy811/VulnShop-DevSecOps.git
-cd VulnShop-DevSecOps
+git clone https://github.com/vhuy811/DevSecOps_VHNAT.git
+cd DevSecOps_VHNAT
 pip install requests
 python kiem_tra_moi_truong.py
 ```
@@ -160,7 +160,7 @@ permissions:
 
 jobs:
   security:
-    uses: vhuy811/VulnShop-DevSecOps/.github/workflows/devsecops-reusable.yml@main
+    uses: vhuy811/DevSecOps_VHNAT/.github/workflows/devsecops-reusable.yml@main
     with:
       project-file: src/Web/Web.csproj
       run-dast: false

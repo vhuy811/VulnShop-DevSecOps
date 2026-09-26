@@ -11,7 +11,7 @@ name: Bao mat
 #
 #     jobs:
 #       security:
-#         uses: vhuy811/VulnShop-DevSecOps/.github/workflows/devsecops-reusable.yml@main
+#         uses: vhuy811/DevSecOps_VHNAT/.github/workflows/devsecops-reusable.yml@main
 #         secrets: inherit
 #
 # Khong khai bao project-file thi bon tang tinh van chay (secret, thu vien,
@@ -39,7 +39,7 @@ permissions:
 
 jobs:
   security:
-    uses: vhuy811/VulnShop-DevSecOps/.github/workflows/devsecops-reusable.yml@main
+    uses: vhuy811/DevSecOps_VHNAT/.github/workflows/devsecops-reusable.yml@main
     with:
       # --- Bat buoc sua cho khop du an cua ban ---------------------------
       project-file: MyApp/MyApp.csproj   # de trong '' neu khong phai .NET

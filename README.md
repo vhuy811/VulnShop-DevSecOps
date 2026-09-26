@@ -71,8 +71,8 @@ Cơ chế chặn là **mã thoát**. `correlate.py --fail-on-confirmed` trả v�
 Docker Desktop, Python 3.9+, Git. Thêm .NET SDK nếu quét dự án .NET.
 
 ```bash
-git clone https://github.com/vhuy811/VulnShop-DevSecOps.git
-cd VulnShop-DevSecOps
+git clone https://github.com/vhuy811/DevSecOps_VHNAT.git
+cd DevSecOps_VHNAT
 pip install requests
 python kiem_tra_moi_truong.py
 ```
@@ -95,7 +95,7 @@ permissions:
 
 jobs:
   security:
-    uses: vhuy811/VulnShop-DevSecOps/.github/workflows/devsecops-reusable.yml@main
+    uses: vhuy811/DevSecOps_VHNAT/.github/workflows/devsecops-reusable.yml@main
     with:
       project-file: src/Web/Web.csproj
       run-dast: false

@@ -8,7 +8,7 @@ name: DevSecOps - nam tang kiem thu (dung chung)
 #
 #     jobs:
 #       security:
-#         uses: vhuy811/VulnShop-DevSecOps/.github/workflows/devsecops-reusable.yml@main
+#         uses: vhuy811/DevSecOps_VHNAT/.github/workflows/devsecops-reusable.yml@main
 #         with:
 #           project-file: MyApp/MyApp.csproj
 #           health-path: /
@@ -206,7 +206,7 @@ jobs:
       - name: Keo bo cong cu DevSecOps ve
         uses: actions/checkout@v4
         with:
-          repository: vhuy811/VulnShop-DevSecOps
+          repository: vhuy811/DevSecOps_VHNAT
           ref: ${{ inputs.toolkit-ref }}
           path: .devsecops-toolkit
 
